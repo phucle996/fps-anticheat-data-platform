@@ -114,23 +114,23 @@
 
 ## Phase 6 — Go Normalization và Validation
 
-* [ ] Tạo normalizer interface.
-* [ ] Tạo player-stat normalizer.
-* [ ] Chuẩn hóa player ID.
-* [ ] Chuẩn hóa match ID.
-* [ ] Parse integer fields.
-* [ ] Parse floating-point fields.
-* [ ] Chuẩn hóa missing values.
-* [ ] Tạo event payload.
-* [ ] Tạo ingest timestamp.
-* [ ] Tạo deterministic event ID.
-* [ ] Tạo event envelope.
-* [ ] Validate required fields.
-* [ ] Validate numeric parsing.
-* [ ] Tạo invalid record structure.
-* [ ] Viết unit test cho normalizer.
-* [ ] Viết unit test cho event ID.
-* [ ] Viết unit test cho validation.
+* [x] Tạo normalizer interface.
+* [x] Tạo player-stat normalizer.
+* [x] Chuẩn hóa player ID.
+* [x] Chuẩn hóa match ID.
+* [x] Parse integer fields.
+* [x] Parse floating-point fields.
+* [x] Chuẩn hóa missing values.
+* [x] Tạo event payload.
+* [x] Tạo ingest timestamp.
+* [x] Tạo deterministic event ID.
+* [x] Tạo event envelope.
+* [x] Validate required fields.
+* [x] Validate numeric parsing.
+* [x] Tạo invalid record structure.
+* [x] Viết unit test cho normalizer.
+* [x] Viết unit test cho event ID.
+* [x] Viết unit test cho validation.
 
 ---
 
