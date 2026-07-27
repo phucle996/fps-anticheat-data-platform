@@ -490,17 +490,21 @@
 * [x] Publish Kafka event `pubg.v1.ml.model.ready`.
 * [x] Viết unit test cho Python ML Training & ONNX Export.
 
+### phase 24 fix bổ sung
+* [x] Refactor di chuyển `apps/python-ml-worker` vào `apps/ml-platform/python-ml-worker` chuẩn hóa kiến trúc 3-in-1 Unified ML Platform Container.
+
 ---
 
 ## Phase 25 — Dedicated Rust ONNX Runtime Engine (`apps/ml-platform/rust-inference/`)
 
 * [ ] Khởi tạo module Rust ML/AI Inference (`apps/ml-platform/rust-inference`).
 * [ ] Tích hợp ONNX Runtime C-bindings (`ort` crate) vào `rust-inference`.
-* [ ] Subscribe Kafka event `pubg.v1.ml.model.ready`.
-* [ ] Tải và verify checksum ONNX Model Bundle từ MinIO S3 (`s3://pubg-models/`).
+* [ ] Nhận tín hiệu IPC trực tiếp từ Python ML Worker khi model mới sẵn sàng (Zero Kafka overhead nội bộ).
+* [ ] Tải và verify checksum ONNX Model Bundle từ MinIO S3 hoặc shared IPC directory.
 * [ ] Atomic Hot-Swap mô hình ONNX trong RAM (Zero Downtime).
 * [ ] Chạy Tensor Inference trực tiếp cho tập dữ liệu Gold features.
 * [ ] Viết unit test cho Rust ONNX Engine trong `apps/ml-platform/rust-inference`.
+
 
 ---
 
