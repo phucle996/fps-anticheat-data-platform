@@ -168,11 +168,19 @@ Hệ thống kết hợp cơ chế **Unbounded Task-Driven Worker Allocation** (
 2. **Unbounded Task-Driven Worker Spawning (`src/worker/dynamic_pool.rs`)**:
    - Khi batch hình thành và xuất Parquet + Manifest JSON lên MinIO S3 thành công, `RDynamicWorkerPool` tự động tạo (`tokio::spawn`) 1 worker bất đồng bộ song song kích hoạt tiến trình `Rscript`.
    - Tiến trình `Rscript` chạy cách ly hoàn toàn dưới dạng OS Subprocess độc lập.
-3. **OS Subprocess Exit & 100% RAM Reclamation**:
-   - Ngay khi `run_batch.R` xử lý xong, tiến trình `Rscript` thoát (`Exit 0`). Kernel Linux lập tức **thu hồi 100% bộ nhớ RAM** đã cấp cho tiến trình đó, đảm bảo Zero Memory Leak tuyệt đối.
-4. **Resource-Driven Circuit Breaker (`src/worker/circuit_breaker.rs`)**:
+3. **Resource-Driven Circuit Breaker (`src/worker/circuit_breaker.rs`)**:
    - **High Watermark (Tripped to `OPEN`)**: Khi CPU $\ge$ 80% hoặc RAM $\ge$ 85%, hệ thống chuyển sang `OPEN` tạm ngắt spawn worker mới để bảo vệ luồng nạp dữ liệu thô.
    - **Low Watermark & Hysteresis Gap (Recovered to `CLOSED`)**: Chỉ phục hồi về `CLOSED` cho phép spawn worker khi CPU $\le$ 75% VÀ RAM $\le$ 80% để tránh Flapping.
+
+---
+
+### ⏱️ Chi Tiết Vòng Đời Bộ Nhớ: Khi Nào GIỮ LẠI (Retain) & Khi Nào THU HỒI (Reclaim)?
+
+| Giai Đoạn | Khi Nào GIỮ LẠI (Retain Memory) | Khi Nào THU HỒI (Reclaim / Free Memory) |
+| :--- | :--- | :--- |
+| **RAM Batch Accumulator** | Dữ liệu events được **GIỮ LẠI trong đệm RAM** suốt quá trình stream cho đến khi chạm 1 trong 3 ngưỡng kích hoạt (`BATCH_SIZE`, `MAX_BATCH_BYTES`, `FLUSH_INTERVAL_MS`). | Ngay khi đệm được nén Parquet + Manifest JSON và upload 2PC lên MinIO S3 thành công, **bộ đệm RAM của batch đó được xóa hoàn toàn (`clear()`)**. |
+| **Kafka Offset Tracker** | Offset state & Partition tracking được **GIỮ LẠI trong RAM** để kiểm soát tính toàn vẹn dữ liệu. | Ngay sau khi Two-Phase Commit (2PC) thành công 100%, offset được commit lên Kafka Broker và giải phóng khỏi bộ đệm offset cũ. |
+| **Rscript Subprocess Worker** | Khi Rscript đang thực thi tính toán Silver/Gold (`run_batch.R`), bộ nhớ RAM cấp riêng cho tiến trình R được **GIỮ LẠI**. | Ngay khi Rscript hoàn tất công việc và thoát (`Subprocess Exit 0`), **Linux OS Kernel lập tức thu hồi 100% bộ nhớ RAM**, đảm bảo **Zero Memory Leak**. |
 
 ---
 
