@@ -529,7 +529,7 @@
 
 ---
 
-## Phase 28 — Shiny Overview
+## Phase 28 — Streamlit Overview Page
 
 * [ ] Hiển thị tổng số records.
 * [ ] Hiển thị tổng số matches.
@@ -544,7 +544,7 @@
 
 ---
 
-## Phase 29 — Shiny Data Quality
+## Phase 29 — Streamlit Data Quality Page (Preprocessing Before vs After)
 
 * [ ] Hiển thị missing values.
 * [ ] Hiển thị duplicate records.
@@ -557,7 +557,7 @@
 
 ---
 
-## Phase 30 — Shiny Player Analysis
+## Phase 30 — Streamlit Player Analysis Page
 
 * [ ] Tạo player selector.
 * [ ] Hiển thị match history.
@@ -573,7 +573,7 @@
 
 ---
 
-## Phase 31 — Shiny Risk Analysis
+## Phase 31 — Streamlit Risk Analysis Page
 
 * [ ] Hiển thị prediction table.
 * [ ] Sort theo risk score.
@@ -602,11 +602,11 @@
 * [ ] Kiểm tra Silver data.
 * [ ] Chạy Feature Engineering.
 * [ ] Kiểm tra Gold data.
-* [ ] Chạy Model Training.
-* [ ] Kiểm tra model artifacts.
-* [ ] Chạy Model Scoring.
+* [ ] Chạy Python Model Training.
+* [ ] Kiểm tra ONNX model artifacts.
+* [ ] Chạy Rust Model Scoring / Inference.
 * [ ] Kiểm tra predictions.
-* [ ] Mở Shiny Dashboard.
+* [ ] Mở Streamlit Dashboard.
 * [ ] Kiểm tra toàn bộ dashboard.
 
 ---
