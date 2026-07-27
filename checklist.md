@@ -219,6 +219,11 @@
 * [x] Viết unit test cho MinIO checkpoint store.
 * [x] Kiểm tra replay resume từ MinIO.
 
+### Phase 10 FIX bổ sung
+* [x] Bổ sung `RemoveObject` vào `MinIOClient` cho tính năng xóa vật lý Checkpoint trên MinIO S3.
+* [x] Chuẩn hóa compile-time interface assertion `var _ CheckpointStore = (*MinIOCheckpointStore)(nil)`.
+* [x] Bổ sung `sync.Once` trong `StopTimer()` phòng ngừa panic closure channel khi shutdown.
+
 ---
 
 ## Phase 11 — Rust Project Foundation

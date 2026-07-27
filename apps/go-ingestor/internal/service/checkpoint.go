@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"time"
 )
 
@@ -29,8 +28,8 @@ type CheckpointStore interface {
 
 // MinIOCheckpointStore triển khai CheckpointStore lưu trữ file JSON trên MinIO S3 (Stateless Cloud-Native Pattern)
 type MinIOCheckpointStore struct {
-	minioCli      *MinIOClient // MinIO S3 Client
-	objectKey     string       // Key MinIO S3 (checkpoints/go-replay/state.json)
+	minioCli  *MinIOClient // MinIO S3 Client
+	objectKey string       // Key MinIO S3 (checkpoints/go-replay/state.json)
 }
 
 // NewMinIOCheckpointStore khởi tạo MinIOCheckpointStore
@@ -87,24 +86,18 @@ func (m *MinIOCheckpointStore) Save(ctx context.Context, state *CheckpointState)
 	return nil
 }
 
-// Reset xóa bỏ file state.json trên MinIO S3 để Replay lại từ đầu
+// Reset xóa bỏ vật lý file state.json trên MinIO S3 khi người dùng yêu cầu Reset Checkpoint
 func (m *MinIOCheckpointStore) Reset(ctx context.Context) error {
 	exists, err := m.minioCli.ObjectExists(ctx, m.objectKey)
 	if err != nil {
 		return err
 	}
 	if exists {
-		// Ghi đè file rỗng hoặc reset về nil khi cần reset
-		emptyState := &CheckpointState{
-			DatasetID:                "",
-			SourceFile:               "",
-			LastCompletedRecordIndex: 0,
-			UpdatedAt:                time.Now().UTC(),
-		}
-		return m.Save(ctx, emptyState)
+		// Xóa vật lý file state.json trên MinIO S3
+		return m.minioCli.RemoveObject(ctx, m.objectKey)
 	}
 	return nil
 }
 
-// Ensure interface check
-var _ io.Closer = (io.Closer)(nil)
+// Compile-time interface assertion kiểm tra MinIOCheckpointStore triển khai đúng CheckpointStore
+var _ CheckpointStore = (*MinIOCheckpointStore)(nil)

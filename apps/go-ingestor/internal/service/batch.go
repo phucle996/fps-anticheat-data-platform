@@ -28,6 +28,7 @@ type BatchFlusher struct {
 	mu           sync.Mutex                // Mutex bảo vệ truy cập đồng thời
 	timerTicker  *time.Ticker              // Timer ticker nhịp flush định kỳ
 	stopTickerCh chan struct{}             // Channel báo dừng ticker
+	stopOnce     sync.Once                 // Guard đảm bảo channel chỉ close đúng 1 lần (Thread-safe)
 }
 
 // NewBatchFlusher khởi tạo BatchFlusher với cấu hình batch quy định
@@ -71,24 +72,24 @@ func (b *BatchFlusher) StartTimer(ctx context.Context) {
 	}()
 }
 
-// StopTimer dừng timer ticker an toàn
+// StopTimer dừng timer ticker an toàn, chống panic khi gọi trùng lặp (sync.Once)
 func (b *BatchFlusher) StopTimer() {
-	if b.timerTicker != nil {
-		b.timerTicker.Stop()
-		close(b.stopTickerCh)
-	}
+	b.stopOnce.Do(func() {
+		if b.timerTicker != nil {
+			b.timerTicker.Stop()
+			close(b.stopTickerCh)
+		}
+	})
 }
 
 // AddEvent thêm 1 EventEnvelope hợp lệ vào bộ đệm, tự động Flush nếu đạt ranh giới (Count hoặc Bytes)
 func (b *BatchFlusher) AddEvent(ctx context.Context, envelope *contract.EventEnvelope) (int64, error) {
 	b.mu.Lock()
 
-	// Tính toán ước lượng kích thước byte JSON của envelope
 	bytesLen := int64(len(envelope.EventID) + len(envelope.MatchID) + len(envelope.PlayerID) + 250)
 	b.rawEnvelopes = append(b.rawEnvelopes, envelope)
 	b.rawBytes += bytesLen
 
-	// Kiểm tra xem đã đạt ranh giới Record Count hoặc Max Bytes hay chưa
 	shouldFlush := len(b.rawEnvelopes) >= b.cfg.MaxBatchSize || b.rawBytes >= b.cfg.MaxBatchBytes
 	b.mu.Unlock()
 
@@ -123,18 +124,15 @@ func (b *BatchFlusher) FlushRaw(ctx context.Context) (int64, error) {
 		return 0, nil
 	}
 
-	// Copy danh sách bản ghi cần phát và reset bộ đệm
 	toSend := b.rawEnvelopes
 	b.rawEnvelopes = make([]*contract.EventEnvelope, 0, b.cfg.MaxBatchSize)
 	b.rawBytes = 0
 	b.mu.Unlock()
 
 	if b.producer == nil {
-		// Ở chế độ Dry-Run không có Producer, trả về số bản ghi giả lập thành công
 		return int64(len(toSend)), nil
 	}
 
-	// Phát từng tin nhắn độc lập vào Kafka (Không bọc thành JSON Array)
 	var count int64
 	for _, env := range toSend {
 		if err := b.producer.ProduceEvent(ctx, env); err != nil {

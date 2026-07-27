@@ -86,3 +86,12 @@ func (m *MinIOClient) DownloadStream(ctx context.Context, objectKey string) (io.
 	}
 	return obj, nil
 }
+
+// RemoveObject xóa vật lý một object key khỏi MinIO S3
+func (m *MinIOClient) RemoveObject(ctx context.Context, objectKey string) error {
+	err := m.client.RemoveObject(ctx, m.bucketName, objectKey, minio.RemoveObjectOptions{})
+	if err != nil {
+		return fmt.Errorf("xóa object %s trên MinIO thất bại: %w", objectKey, err)
+	}
+	return nil
+}
