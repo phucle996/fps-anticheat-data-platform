@@ -619,11 +619,11 @@
 
 ## Phase 35 — Comprehensive Testing Suite
 
-* [ ] Go API unit & integration tests.
-* [ ] Rust ONNX & IPC unit tests.
-* [ ] R preprocessing & feature tests.
-* [ ] Python ML training & export tests.
-* [ ] End-to-end failure tests.
+* [x] Go API unit & integration tests.
+* [x] Rust ONNX & IPC unit tests.
+* [x] R preprocessing & feature tests.
+* [x] Python ML training & export tests.
+* [x] End-to-end failure tests.
 
 ---
 
