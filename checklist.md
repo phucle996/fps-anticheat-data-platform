@@ -439,22 +439,22 @@
 
 ## Phase 22 — R Feature Engineering và Gold
 
-* [ ] Chọn feature columns.
-* [ ] Tính total distance.
-* [ ] Tính headshot ratio.
-* [ ] Tính kills per minute.
-* [ ] Tính damage per minute.
-* [ ] Tính damage per kill.
-* [ ] Tính movement per minute.
-* [ ] Tính performance versus lobby.
-* [ ] Xử lý chia cho 0.
-* [ ] Xử lý `NA`.
-* [ ] Xử lý giá trị vô hạn.
-* [ ] Validate feature types.
-* [ ] Tạo feature schema.
-* [ ] Tạo feature version.
-* [ ] Ghi Gold Parquet.
-* [ ] Viết test cho từng feature.
+* [x] Chọn feature columns.
+* [x] Tính total distance.
+* [x] Tính headshot ratio.
+* [x] Tính kills per minute.
+* [x] Tính damage per minute.
+* [x] Tính damage per kill.
+* [x] Tính movement per minute.
+* [x] Tính performance versus lobby.
+* [x] Xử lý chia cho 0.
+* [x] Xử lý `NA`.
+* [x] Xử lý giá trị vô hạn.
+* [x] Validate feature types.
+* [x] Tạo feature schema.
+* [x] Tạo feature version.
+* [x] Ghi Gold Parquet.
+* [x] Viết test cho từng feature.
 
 ---
 

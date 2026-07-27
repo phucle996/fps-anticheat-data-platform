@@ -12,6 +12,7 @@ source("R/config.R")
 source("R/manifest_reader.R")
 source("R/storage.R")
 source("R/silver_preprocessor.R")
+source("R/gold_feature_engine.R")
 
 cat("[SUCCESS] Đã nạp thành công 100% R libraries vào RAM. Sẵn sàng nhận batch task!\n")
 
@@ -31,8 +32,13 @@ while (TRUE) {
     idle_seconds <- 0
     
     tryCatch({
+      # 1. Preprocess Silver entities
       report <- process_silver_entities(manifest_path)
-      cat(sprintf("[TASK SUCCESS] Bảng Silver Entities cho batch '%s' xử lý xong!\n", report$batch_id))
+      # 2. Extract Gold ML Features
+      gold_df <- generate_gold_features(manifest_path)
+      
+      cat(sprintf("[TASK SUCCESS] Bảng Silver Entities & Gold Feature Matrix cho batch '%s' xử lý xong! (Features: %d)\n", 
+                  report$batch_id, nrow(gold_df)))
     }, error = function(e) {
       cat(sprintf("[TASK ERROR] Lỗi xử lý batch manifest '%s': %s\n", manifest_path, e$message))
     })

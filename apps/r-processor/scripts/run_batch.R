@@ -26,6 +26,7 @@ source("R/config.R")
 source("R/manifest_reader.R")
 source("R/storage.R")
 source("R/silver_preprocessor.R")
+source("R/gold_feature_engine.R")
 
 tryCatch({
   # 1. Đọc và kiểm tra Manifest JSON
@@ -33,11 +34,14 @@ tryCatch({
   cat(sprintf("[SUCCESS] Đã đọc thành công Batch ID '%s' (Total Records: %d)\n", 
               manifest$batch_id, manifest$total_records_read))
   
-  # 2. Xử lý tiền xử lý và trích xuất 3 bảng Silver Layer Entities
-  report <- process_silver_entities(manifest_path)
+  # 2. Xử lý tiền xử lý Silver Layer Entities
+  silver_report <- process_silver_entities(manifest_path)
   
-  cat(sprintf("[SUCCESS] Hoàn tất tiến trình R Preprocessor cho Batch '%s' (Unique: %d, Players: %d, Matches: %d)\n",
-              report$batch_id, report$unique_records, report$players_count, report$matches_count))
+  # 3. Trích xuất Gold Layer Feature Matrix
+  gold_df <- generate_gold_features(manifest_path)
+  
+  cat(sprintf("[SUCCESS] Hoàn tất toàn bộ R Pipeline cho Batch '%s' (Silver Players: %d, Gold Features: %d)\n",
+              silver_report$batch_id, silver_report$players_count, nrow(gold_df)))
   quit(status = 0)
 }, error = function(e) {
   cat(sprintf("[ERROR] Rscript Subprocess thất bại: %s\n", e$message))
