@@ -96,13 +96,52 @@
 
 ---
 
-## 🔄 Dynamic Worker Allocation Pool & Hysteresis Circuit Breaker
+## 🔄 Dynamic Worker Allocation Pool (`src/worker/dynamic_pool.rs`)
 
-Để vận hành bền vững trong môi trường **Cloud-Native & High Availability (HA)**, `apps/rust-processor` tích hợp **Dynamic Worker Pool (`src/worker/dynamic_pool.rs`)** đo lường trực tiếp tài nguyên Linux OS (`/proc/stat` & `/proc/meminfo`):
+Cơ chế điều phối tự động cấp phát và quản lý tải lượng công việc tới các R Worker subprocesses dựa trên dung lượng hàng chờ đệm và số lượng nhiệm vụ cần xử lý:
 
 ```text
 +-----------------------------------------------------------------------------------------+
-|             RESOURCE-DRIVEN HYSTERESIS CIRCUIT BREAKER & DYNAMIC ALLOCATION             |
+|                  DYNAMIC WORKER ALLOCATION POOL DEDICATED FLOW                          |
++-----------------------------------------------------------------------------------------+
+
+                  Batch Manifest Signal / Task Dispatch Requests
+                                         |
+                                         v
+                      +--------------------------------------+
+                      |        RDynamicWorkerPool            |
+                      |   (Task Dispatcher & Capacity)       |
+                      +--------------------------------------+
+                                         |
+                         +---------------+---------------+
+                         |                               |
+                         v                               v
+             +-----------------------+       +-----------------------+
+             | Dynamic Worker        |       | Dynamic Worker        |
+             | Thread 1 (Active)     |       | Thread N (Max Capacity|
+             +-----------------------+       |  Limit = 64 Workers)  |
+                         |                   +-----------------------+
+                         v                               |
+             +-------------------------------------------------------+
+             |           Async Subprocess Execution (R Script)       |
+             +-------------------------------------------------------+
+```
+
+### 🧠 Giải Thích Chi Tiết Dynamic Worker Allocation:
+- **Tự động Co/Giãn theo Tải (Dynamic Capacity Allocation)**:
+  - Khi luồng dữ liệu thô nạp vào liên tục tạo các Batch Manifest mới, `RDynamicWorkerPool` cấp phát linh hoạt các Worker Threads để kích hoạt R Worker subprocesses xử lý song song (Tối đa `max_capacity = 64` workers).
+- **Thu Hồi Tài Nguyên (Resource Reclamation)**:
+  - Ngay khi công việc xử lý batch hoàn tất, subprocess nhàn rỗi được tự động giải phóng để giải phóng CPU core và RAM cho cụm Kubernetes/HA Node.
+
+---
+
+## 🛡️ Resource-Driven Hysteresis Circuit Breaker (`src/worker/circuit_breaker.rs`)
+
+Bộ ngắt mạch bảo vệ an toàn hạ tầng dựa trên việc đo lường trực tiếp tài nguyên Linux OS real-time từ `/proc/stat` & `/proc/meminfo`:
+
+```text
++-----------------------------------------------------------------------------------------+
+|             RESOURCE-DRIVEN HYSTERESIS CIRCUIT BREAKER & WATERMARKS                     |
 +-----------------------------------------------------------------------------------------+
 
               Real-Time OS Resource Metrics (/proc/stat & /proc/meminfo)
@@ -123,7 +162,6 @@
 ```
 
 ### 🧠 Giải Thích Chi Tiết Cơ Chế Hysteresis Gap & Watermarks:
-
 1. **Pure Resource-Driven Monitoring (`/proc/stat` & `/proc/meminfo`)**:
    - Engine đọc trực tiếp chỉ số CPU usage % và RAM usage % từ Linux kernel `procfs` real-time trước khi dispatch bất kỳ công việc nào.
 2. **High Watermark (Tripped to `OPEN`)**:
