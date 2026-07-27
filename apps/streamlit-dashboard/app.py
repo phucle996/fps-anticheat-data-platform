@@ -1,7 +1,9 @@
 import streamlit as st
 from src.config import DashboardConfig
 from src.services.api_client import APIClient
+from src.services.s3_client import S3DataClient
 from src.views.overview import render_overview_page
+from src.views.preprocessing import render_preprocessing_page
 
 # Cấu hình Trang Streamlit & Theme Cyberpunk Dark Mode
 st.set_page_config(
@@ -53,6 +55,7 @@ def get_dashboard_config() -> DashboardConfig:
 
 config = get_dashboard_config()
 api_client = APIClient(config)
+s3_client = S3DataClient(config)
 
 # 2. Navigation Sidebar
 st.sidebar.title("🛡️ PUBG Anti-Cheat")
@@ -83,8 +86,7 @@ if page == "📊 Overview & Pipeline Health":
     render_overview_page(api_client)
 
 elif page == "🧹 Preprocessing Before vs After":
-    st.title("🧹 Preprocessing Before vs After Explorer")
-    st.info("Trình khám phá và so sánh chất lượng dữ liệu màng lọc 1-1 Trước vs Sau khi tiền xử lý.")
+    render_preprocessing_page(api_client, s3_client)
 
 elif page == "👤 Player Analysis & Lobby Comparison":
     st.title("👤 Player Analysis & Lobby Comparison")

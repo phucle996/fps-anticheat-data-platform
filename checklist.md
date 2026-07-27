@@ -564,13 +564,13 @@
 
 ## Phase 31 — Streamlit Preprocessing Before vs After Page
 
-* [ ] Hiển thị missing values.
-* [ ] Hiển thị duplicate records.
-* [ ] Hiển thị invalid records.
-* [ ] Hiển thị invalid reasons.
-* [ ] Hiển thị record count theo batch.
-* [ ] Biểu đồ so sánh 1-1 trước và sau khi làm sạch dữ liệu.
-* [ ] Thêm filter theo source file và batch.
+* [x] Hiển thị missing values.
+* [x] Hiển thị duplicate records.
+* [x] Hiển thị invalid records.
+* [x] Hiển thị invalid reasons.
+* [x] Hiển thị record count theo batch.
+* [x] Biểu đồ so sánh 1-1 trước và sau khi làm sạch dữ liệu.
+* [x] Thêm filter theo source file và batch.
 
 ---
 
