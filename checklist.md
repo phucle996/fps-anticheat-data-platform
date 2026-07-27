@@ -492,20 +492,21 @@
 
 ---
 
-## Phase 25 — Rust ONNX Runtime Engine (`apps/rust-processor/src/inference/`)
+## Phase 25 — Dedicated Rust ONNX Runtime Engine (`apps/rust-inference/src/inference/`)
 
-* [ ] Tích hợp ONNX Runtime C-bindings (`ort` crate) vào Rust Processor.
+* [ ] Khởi tạo ứng dụng Rust ML/AI Inference Container độc lập (`apps/rust-inference`).
+* [ ] Tích hợp ONNX Runtime C-bindings (`ort` crate) vào `apps/rust-inference`.
 * [ ] Subscribe Kafka event `pubg.v1.ml.model.ready`.
 * [ ] Tải và verify checksum ONNX Model Bundle từ MinIO S3 (`s3://pubg-models/`).
 * [ ] Atomic Hot-Swap mô hình ONNX trong RAM (Zero Downtime).
 * [ ] Chạy Tensor Inference trực tiếp cho tập dữ liệu Gold features.
-* [ ] Viết unit test cho Rust ONNX Engine.
+* [ ] Viết unit test cho Rust ONNX Engine trong `apps/rust-inference`.
 
 ---
 
-## Phase 26 — Rust Unix Domain Socket IPC Server (`apps/rust-processor/src/ipc/`)
+## Phase 26 — Rust Unix Domain Socket IPC Server (`apps/rust-inference/src/ipc/`)
 
-* [ ] Thiết lập Unix Domain Socket Listener (`/tmp/rust_inference.sock`) trong Rust Processor.
+* [ ] Thiết lập Unix Domain Socket Listener (`/tmp/rust_inference.sock`) trong `apps/rust-inference`.
 * [ ] Xử lý giao thức IPC Request/Response JSON siêu tốc với Go API Gateway.
 * [ ] Chuẩn hóa Anomaly Risk Score (0.0 - 1.0) và gán nhãn Risk Level.
 * [ ] Ghi kết quả Predictions Parquet lên MinIO `s3://pubg-predictions/`.
@@ -519,7 +520,7 @@
 * [ ] Khởi tạo ứng dụng Go API Gateway độc lập (`apps/go-api`).
 * [ ] Thêm biến môi trường cấu hình Fail-Close cho Go API Gateway.
 * [ ] Xây dựng HTTP REST Endpoints (`/api/v1/health`, `/api/v1/predict`, `/api/v1/dataset/summary`).
-* [ ] Kết nối Unix Domain Socket IPC client (`/tmp/rust_inference.sock`) tới Rust Processor Engine.
+* [ ] Kết nối Unix Domain Socket IPC client (`/tmp/rust_inference.sock`) tới `apps/rust-inference`.
 * [ ] Viết integration test cho Go API Gateway.
 
 ---
