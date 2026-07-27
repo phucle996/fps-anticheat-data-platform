@@ -21,6 +21,7 @@ type ReplayerConfig struct {
 	DisableCheckpoint bool        // Cờ tắt tính năng đọc/ghi Checkpoint
 	ResetCheckpoint   bool        // Cờ xóa trạng thái Checkpoint cũ trên MinIO S3
 	MicroBatching     BatchConfig // Cấu hình Micro-Batching Flusher
+	StreamDelayMs     int64       // Khoảng trễ (ms) phát rải rác giữa các bản ghi game events (Stream Simulator)
 }
 
 // ReplayStatistics theo dõi bộ đếm thống kê thời gian thực của replay loop
@@ -174,6 +175,17 @@ func (r *Replayer) Run(ctx context.Context) (*ReplayStatistics, error) {
 				// Cập nhật và lưu Checkpoint lên MinIO S3 sau mỗi đợt phát Kafka thành công
 				if flushedCount > 0 {
 					r.saveCheckpoint(ctx)
+				}
+			}
+
+			// Giả lập khoảng trễ phát rải rác thời gian thực (Real-time Stream Simulator)
+			if r.cfg.StreamDelayMs > 0 {
+				select {
+				case <-ctx.Done():
+					r.log.Warn("Ngắt Context trong lúc chờ StreamDelayMs")
+					return &r.stats, ctx.Err()
+				case <-time.After(time.Duration(r.cfg.StreamDelayMs) * time.Millisecond):
+					// Hoàn tất khoảng trễ nạp bản ghi rải rác
 				}
 			}
 		}
