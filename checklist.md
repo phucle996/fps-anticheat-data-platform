@@ -530,11 +530,11 @@
 
 ## Phase 28 — Prediction Evidence và Model Parity Verification
 
-* [ ] Viết Model Parity Test (Xác nhận Python ONNX output ≈ Rust ONNX output ≤ 1e-5).
-* [ ] Tính toán Robust Z-Score và Feature Percentile so với trung bình Lobby.
-* [ ] Trích xuất Top Evidence Features nghi vấn gian lận cho từng player.
-* [ ] Đóng gói Weak-label Risk Score và Evidence Matrix vào Prediction API Response.
-* [ ] Viết unit test cho Evidence Generation.
+* [x] Viết Model Parity Test (Xác nhận Python ONNX output ≈ Rust ONNX output ≤ 1e-5).
+* [x] Tính toán Robust Z-Score và Feature Percentile so với trung bình Lobby.
+* [x] Trích xuất Top Evidence Features nghi vấn gian lận cho từng player.
+* [x] Đóng gói Weak-label Risk Score và Evidence Matrix vào Prediction API Response.
+* [x] Viết unit test cho Evidence Generation.
 
 ---
 

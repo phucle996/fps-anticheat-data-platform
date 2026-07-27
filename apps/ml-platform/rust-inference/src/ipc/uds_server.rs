@@ -1,4 +1,5 @@
 use crate::error::{AppError, Result};
+use crate::evidence::{EvidenceEngine, EvidenceMatrix};
 use crate::inference::OnnxInferenceEngine;
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -19,12 +20,13 @@ pub struct IpcPredictRequest {
 /// IpcPredictResponse định nghĩa cấu trúc JSON IPC Phản hồi cho Go API Gateway
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IpcPredictResponse {
-    pub status: String,            // Trạng thái xử lý ("ok" hoặc "error")
-    pub match_id: String,          // Mã trận đấu
-    pub player_id: String,         // Mã người chơi
-    pub risk_score: f32,           // Anomaly Risk Score (0.0 - 1.0)
-    pub risk_level: String,        // Nhãn Risk Level ("LOW", "MEDIUM", "HIGH", "CRITICAL")
-    pub model_version: String,     // Phiên bản ONNX Model ("v1")
+    pub status: String,                 // Trạng thái xử lý ("ok" hoặc "error")
+    pub match_id: String,               // Mã trận đấu
+    pub player_id: String,              // Mã người chơi
+    pub risk_score: f32,                // Anomaly Risk Score (0.0 - 1.0)
+    pub risk_level: String,             // Nhãn Risk Level ("LOW", "MEDIUM", "HIGH", "CRITICAL")
+    pub model_version: String,          // Phiên bản ONNX Model ("v1")
+    pub evidence_matrix: EvidenceMatrix, // Bằng chứng gian lận Evidence Matrix
 }
 
 /// UdsIpcServer quản lý lắng nghe và xử lý giao tiếp Unix Domain Socket IPC siêu tốc với Go API
@@ -41,7 +43,6 @@ impl UdsIpcServer {
 
     /// Run khởi chạy vòng lặp async tokio lắng nghe kết nối từ Go API Gateway
     pub async fn run(&self) -> Result<()> {
-        // Xóa file socket cũ nếu tồn tại trước khi bind
         if Path::new(&self.socket_path).exists() {
             let _ = fs::remove_file(&self.socket_path);
         }
@@ -65,6 +66,8 @@ impl UdsIpcServer {
                             if bytes_read > 0 {
                                 if let Ok(req) = serde_json::from_slice::<IpcPredictRequest>(&buffer[..bytes_read]) {
                                     let (risk_score, risk_level) = engine.predict(&req.features);
+                                    let evidence_matrix = EvidenceEngine::generate_evidence(&req.features);
+
                                     let resp = IpcPredictResponse {
                                         status: "ok".to_string(),
                                         match_id: req.match_id,
@@ -72,6 +75,7 @@ impl UdsIpcServer {
                                         risk_score,
                                         risk_level,
                                         model_version: engine.version(),
+                                        evidence_matrix,
                                     };
 
                                     if let Ok(resp_bytes) = serde_json::to_vec(&resp) {

@@ -15,14 +15,29 @@ type PredictRequest struct {
 	Features [6]float32 `json:"features"`  // 6 đặc trưng Gold Feature Contract
 }
 
+// EvidenceItem đại diện cho 1 bằng chứng chi tiết về đặc trưng nghi vấn gian lận
+type EvidenceItem struct {
+	Feature  string  `json:"feature"`   // Tên đặc trưng ML
+	Value    float32 `json:"value"`     // Giá trị thực tế của người chơi
+	LobbyAvg float32 `json:"lobby_avg"` // Giá trị trung bình của trận đấu
+	ZScore   float32 `json:"z_score"`   // Chỉ số Robust Z-Score
+	Reason   string  `json:"reason"`    // Mô tả giải thích ngắn gọn lý do nghi vấn
+}
+
+// EvidenceMatrix chứa danh sách các bằng chứng gian lận nổi bật nhất
+type EvidenceMatrix struct {
+	TopEvidenceFeatures []EvidenceItem `json:"top_evidence_features"`
+}
+
 // PredictResponse định nghĩa cấu trúc Phản hồi kết quả dự báo từ Rust Inference Engine
 type PredictResponse struct {
-	Status       string  `json:"status"`        // Trạng thái ("ok" hoặc "error")
-	MatchID      string  `json:"match_id"`      // Mã trận đấu
-	PlayerID     string  `json:"player_id"`     // Mã người chơi
-	RiskScore    float32 `json:"risk_score"`    // Anomaly Risk Score (0.0 - 1.0)
-	RiskLevel    string  `json:"risk_level"`    // Nhãn Risk Level ("LOW", "MEDIUM", "HIGH", "CRITICAL")
-	ModelVersion string  `json:"model_version"` // Phiên bản ONNX Model ("v1")
+	Status         string         `json:"status"`          // Trạng thái ("ok" hoặc "error")
+	MatchID        string         `json:"match_id"`        // Mã trận đấu
+	PlayerID       string         `json:"player_id"`       // Mã người chơi
+	RiskScore      float32        `json:"risk_score"`      // Anomaly Risk Score (0.0 - 1.0)
+	RiskLevel      string         `json:"risk_level"`      // Nhãn Risk Level ("LOW", "MEDIUM", "HIGH", "CRITICAL")
+	ModelVersion   string         `json:"model_version"`   // Phiên bản ONNX Model ("v1")
+	EvidenceMatrix EvidenceMatrix `json:"evidence_matrix"` // Bằng chứng gian lận Evidence Matrix
 }
 
 // Client quản lý kết nối IPC Client Unix Domain Socket tới Rust Inference Engine
@@ -45,13 +60,11 @@ func (c *Client) Predict(req *PredictRequest) (*PredictResponse, error) {
 	}
 	defer conn.Close()
 
-	// 1. Ghi JSON payload request
 	encoder := json.NewEncoder(conn)
 	if err := encoder.Encode(req); err != nil {
 		return nil, fmt.Errorf("lỗi mã hóa JSON IPC request: %w", err)
 	}
 
-	// 2. Đọc JSON payload response
 	var resp PredictResponse
 	decoder := json.NewDecoder(conn)
 	if err := decoder.Decode(&resp); err != nil {
