@@ -1,4 +1,4 @@
-use crate::consumer::ConsumedMessage;
+use super::consumer::ConsumedMessage;
 use crate::domain::EventEnvelope;
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
@@ -123,14 +123,12 @@ impl BatchAccumulator {
     /// Generate_batch_id sinh mã băm SHA-256 định danh cho Batch
     fn generate_batch_id(&self, offsets: &HashMap<i32, (i64, i64)>) -> String {
         use std::collections::BTreeMap;
-        // Sắp xếp partition key theo thứ tự tăng dần để tạo chuỗi băm ổn định
         let sorted_map: BTreeMap<_, _> = offsets.iter().collect();
         let mut raw_str = String::new();
         for (part, (min, max)) in sorted_map {
             raw_str.push_str(&format!("p{}:{}-{}|", part, min, max));
         }
 
-        // Tạo SHA256 đơn giản từ chuỗi định danh offset
         format!("{:x}", sha256_simple(&raw_str))
     }
 }

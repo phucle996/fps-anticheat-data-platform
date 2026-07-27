@@ -47,7 +47,7 @@ impl KafkaConsumer {
             brokers = %config.kafka_brokers,
             topic = %config.kafka_raw_topic,
             group_id = %config.kafka_group_id,
-            "Đã khởi tạo KafkaConsumer thành công (At-Least-Once Active)"
+            "Đã khởi tạo KafkaConsumer thuộc module ingest (At-Least-Once Active)"
         );
 
         Ok(Self {

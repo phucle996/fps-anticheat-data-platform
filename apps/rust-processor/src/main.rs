@@ -1,4 +1,11 @@
-use rust_processor::{BatchAccumulator, BatchAccumulatorConfig, Config, KafkaConsumer, Result};
+mod config;
+mod domain;
+mod error;
+mod ingest;
+
+use config::Config;
+use error::Result;
+use ingest::{BatchAccumulator, BatchAccumulatorConfig, KafkaConsumer};
 use std::time::Duration;
 use tracing::{info, warn};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
@@ -14,7 +21,7 @@ async fn main() -> Result<()> {
 		.with(json_formatting)
 		.init();
 
-	info!("Khởi động tiến trình Rust Stream Processor Engine (Phase 13 Batch Accumulator Active)...");
+	info!("Khởi động tiến trình Rust Stream Processor Engine (Ingest Module Active)...");
 
 	// 2. Nạp cấu hình ứng dụng từ biến môi trường (Fail-Close 100%)
 	let config = match Config::from_env() {
@@ -36,7 +43,7 @@ async fn main() -> Result<()> {
 		"Đã khởi tạo thành công cấu hình Rust Processor"
 	);
 
-	// 3. Khởi tạo KafkaConsumer với enable.auto.commit = false
+	// 3. Khởi tạo KafkaConsumer với enable.auto.commit = false từ ingest module
 	let consumer = KafkaConsumer::new(&config)?;
 	info!("KafkaConsumer đã sẵn sàng nhận luồng sự kiện từ Kafka Topic: {}", config.kafka_raw_topic);
 
@@ -48,7 +55,7 @@ async fn main() -> Result<()> {
 	};
 	let mut accumulator = BatchAccumulator::new(accum_config);
 
-	info!("Bắt đầu vòng lặp Consumer Loop (Batch Accumulator Active)...");
+	info!("Bắt đầu vòng lặp Consumer Loop (Ingest Module Active)...");
 	loop {
 		tokio::select! {
 			_ = tokio::signal::ctrl_c() => {
@@ -66,7 +73,6 @@ async fn main() -> Result<()> {
 			msg_result = consumer.recv_message() => {
 				match msg_result {
 					Ok(Some(msg)) => {
-						// Đưa tin nhắn vào BatchAccumulator
 						if let Some(completed_batch) = accumulator.push(msg) {
 							info!(
 								batch_id = %completed_batch.batch_id,
@@ -87,7 +93,6 @@ async fn main() -> Result<()> {
 			}
 		}
 
-		// Kiểm tra Timer Flush nếu đến nhịp flush_interval_ms
 		if accumulator.should_flush_timer() {
 			if let Some(completed_batch) = accumulator.flush() {
 				info!(

@@ -282,6 +282,9 @@
 * [x] Tạo batch ID.
 * [x] Viết unit test cho accumulator.
 
+### Phase 13 FIX bổ sung
+* [x] Quy hoạch cấu trúc module `src/ingest/` (chứa `consumer.rs` và `accumulator.rs`) gom cụm toàn bộ luồng Ingestion theo chuẩn Domain-Driven / Pipeline Architecture.
+
 ---
 
 ## Phase 14 — Rust Data Quality

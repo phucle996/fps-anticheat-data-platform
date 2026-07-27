@@ -1,6 +1,5 @@
-use rust_processor::accumulator::{BatchAccumulator, BatchAccumulatorConfig};
-use rust_processor::consumer::ConsumedMessage;
 use rust_processor::domain::{EventEnvelope, PlayerStatPayload, SourceMetadata};
+use rust_processor::ingest::{BatchAccumulator, BatchAccumulatorConfig, ConsumedMessage};
 use std::time::Duration;
 
 fn create_mock_message(partition: i32, offset: i64) -> ConsumedMessage {
