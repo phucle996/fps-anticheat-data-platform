@@ -5,6 +5,7 @@ mod error;
 mod ingest;
 mod storage;
 mod transform;
+mod worker;
 
 use app::StreamProcessorApp;
 use config::Config;

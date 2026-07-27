@@ -392,24 +392,25 @@
 
 ## Phase 20 — R Project Foundation
 
-* [ ] Khởi tạo R project.
-* [ ] Khởi tạo `renv`.
-* [ ] Tạo thư mục `R`.
-* [ ] Tạo thư mục `scripts`.
-* [ ] Tạo config loader.
-* [ ] Tạo MinIO storage module.
-* [ ] Tạo manifest reader.
-* [ ] Thêm Arrow package.
-* [ ] Thêm data-processing packages.
-* [ ] Thêm model package.
-* [ ] Thêm testing package.
-* [ ] Tạo Dockerfile.
-* [ ] Thêm R Pipeline vào Docker Compose.
+* [x] Khởi tạo R project (`apps/r-processor`).
+* [x] Khởi tạo `renv` quản lý R packages độc lập.
+* [x] Tạo thư mục `R`.
+* [x] Tạo thư mục `scripts`.
+* [x] Tạo config loader cho R.
+* [x] Tạo MinIO storage module cho R.
+* [x] Tạo manifest reader.
+* [x] Thêm Arrow package (`arrow`).
+* [x] Thêm data-processing packages (`dplyr`, `data.table`).
+* [x] Thêm model package (`solitude` / `isotree`).
+* [x] Thêm testing package (`testthat`).
+* [x] Tích hợp Async Subprocess Spawner trong Rust Processor (`tokio::process::Command`, Semaphore concurrency control).
+* [x] Đóng gói R Runtime và renv packages vào Docker Container environment.
 
 ---
 
 ## Phase 21 — R Preprocessing và Silver
 
+* [ ] Hỗ trợ nhận tham số `manifest_path` từ Rscript Subprocess CLI.
 * [ ] List Bronze manifests.
 * [ ] Chỉ đọc manifest completed.
 * [ ] Đọc Bronze Parquet.

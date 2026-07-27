@@ -3,17 +3,19 @@ use crate::error::Result;
 use crate::ingest::{BatchAccumulator, BatchAccumulatorConfig, CompletedBatch, KafkaConsumer};
 use crate::storage::{BatchManifest, MinioWriter, PartitionOffsetMetadata};
 use crate::transform::{ArrowConverter, EventDeduplicator, EventValidator, ParquetSerializer};
+use crate::worker::RWorkerSpawner;
 use chrono::Utc;
 use std::collections::HashMap;
 use std::time::Duration;
 use tracing::{info, warn};
 
-/// StreamProcessorApp đóng gói toàn bộ quy trình Ingest -> Validate -> Dedup -> Arrow -> Parquet -> MinIO -> Offset Commit
+/// StreamProcessorApp đóng gói toàn bộ quy trình Ingest -> Validate -> Dedup -> Arrow -> Parquet -> MinIO -> Offset Commit -> R Worker Spawn
 pub struct StreamProcessorApp {
     config: Config,               // Cấu hình ứng dụng
     consumer: KafkaConsumer,      // Bộ đọc tin nhắn Kafka
     accumulator: BatchAccumulator,// Bộ gom batch dữ liệu RAM
     writer: MinioWriter,          // Bộ ghi dữ liệu MinIO S3
+    r_spawner: RWorkerSpawner,    // Bộ kích hoạt R Subprocess Async Worker
 }
 
 impl StreamProcessorApp {
@@ -21,6 +23,7 @@ impl StreamProcessorApp {
     pub fn new(config: Config) -> Result<Self> {
         let consumer = KafkaConsumer::new(&config)?;
         let writer = MinioWriter::new(&config)?;
+        let r_spawner = RWorkerSpawner::new(4); // Giới hạn tối đa 4 R Workers chạy song song
 
         let accum_config = BatchAccumulatorConfig {
             max_records: config.batch_size,
@@ -29,13 +32,14 @@ impl StreamProcessorApp {
         };
         let accumulator = BatchAccumulator::new(accum_config);
 
-        info!("Khởi tạo StreamProcessorApp engine thành công");
+        info!("Khởi tạo StreamProcessorApp engine (RWorkerSpawner Active) thành công");
 
         Ok(Self {
             config,
             consumer,
             accumulator,
             writer,
+            r_spawner,
         })
     }
 
@@ -80,7 +84,7 @@ impl StreamProcessorApp {
         Ok(())
     }
 
-    /// Process_completed_batch xử lý 1 CompletedBatch theo đúng quy trình Durable Two-Phase Commit
+    /// Process_completed_batch xử lý 1 CompletedBatch theo đúng quy trình Durable Two-Phase Commit & Async R Worker
     pub async fn process_completed_batch(&self, completed_batch: CompletedBatch) -> Result<()> {
         // 1. Data Quality Validation
         let val_outcome = EventValidator::validate_batch(completed_batch.events);
@@ -136,6 +140,9 @@ impl StreamProcessorApp {
                     manifest_path = %manifest_path,
                     "Hoàn tất quy trình Durable Two-Phase Commit cho Processing Batch!"
                 );
+
+                // 8. Kích hoạt Rscript Async Subprocess Worker (Non-blocking)
+                self.r_spawner.spawn_worker(manifest_path);
             }
         }
 

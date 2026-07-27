@@ -5,6 +5,7 @@ pub mod error;
 pub mod ingest;
 pub mod storage;
 pub mod transform;
+pub mod worker;
 
 pub use app::StreamProcessorApp;
 pub use config::Config;
@@ -16,3 +17,4 @@ pub use transform::{
     ArrowConverter, DeduplicateOutcome, EventDeduplicator, EventValidator, InvalidEnvelopeRecord, ParquetSerializer,
     ValidationOutcome,
 };
+pub use worker::RWorkerSpawner;
