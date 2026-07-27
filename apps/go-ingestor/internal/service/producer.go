@@ -30,7 +30,7 @@ type KafkaProducer struct {
 	log           *logrus.Entry // Logger JSON
 }
 
-// NewKafkaProducer khởi tạo KafkaProducer (Các tham số đã được Thượng nguồn/Transport Layer validate trước)
+// NewKafkaProducer khởi tạo KafkaProducer (Tin tưởng tham số đã được Thượng nguồn validate)
 func NewKafkaProducer(brokers []string, rawTopic, invalidTopic string, log *logrus.Entry) (*KafkaProducer, error) {
 	// 1. Cấu hình Writer cho Raw Topic (pubg.v1.player-stat.raw)
 	rawWriter := &kafka.Writer{
@@ -64,7 +64,7 @@ func NewKafkaProducer(brokers []string, rawTopic, invalidTopic string, log *logr
 		"invalid_topic": invalidTopic,
 		"acks":          "all",
 		"compression":   "zstd",
-	}).Info("Đã khởi tạo Kafka Producer từ tham số Thượng nguồn (HA & Fail-Close ready)")
+	}).Info("Đã khởi tạo Kafka Producer (HA & Fail-Close ready)")
 
 	return &KafkaProducer{
 		rawWriter:     rawWriter,
@@ -75,7 +75,7 @@ func NewKafkaProducer(brokers []string, rawTopic, invalidTopic string, log *logr
 
 // ProduceEvent phát tin nhắn EventEnvelope hợp lệ vào Kafka (Key = match_id)
 func (kp *KafkaProducer) ProduceEvent(ctx context.Context, envelope *contract.EventEnvelope) error {
-	// Serialize EventEnvelope thành byte JSON
+	// Serialize EventEnvelope thành byte JSON trực tiếp (không re-validate nil)
 	payloadBytes, err := json.Marshal(envelope)
 	if err != nil {
 		return fmt.Errorf("serialize EventEnvelope thất bại: %w", err)

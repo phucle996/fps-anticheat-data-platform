@@ -70,12 +70,8 @@ type CSVParser struct {
 	closer      io.Closer   // Closer nếu input reader hỗ trợ đóng luồng
 }
 
-// NewCSVParser khởi tạo CSVParser với một io.Reader luồng dữ liệu (O(1) RAM footprint)
+// NewCSVParser khởi tạo CSVParser từ io.Reader stream (Tin tưởng tham số đã được Thượng nguồn cung cấp)
 func NewCSVParser(reader io.Reader, sourceFile string) (*CSVParser, error) {
-	if reader == nil {
-		return nil, fmt.Errorf("reader không được phép nil")
-	}
-
 	csvReader := csv.NewReader(reader)
 	csvReader.FieldsPerRecord = -1
 	csvReader.LazyQuotes = true

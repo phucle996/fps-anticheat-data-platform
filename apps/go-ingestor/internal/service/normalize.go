@@ -30,10 +30,6 @@ func NewPlayerStatNormalizer(datasetID string) *PlayerStatNormalizer {
 
 // Normalize thực thi luồng parse, sinh event_id định hạn SHA-256 và validate dữ liệu
 func (n *PlayerStatNormalizer) Normalize(raw *RawRecord) (*contract.EventEnvelope, *contract.InvalidRecord, error) {
-	if raw == nil || raw.Fields == nil {
-		return nil, nil, fmt.Errorf("raw record không được phép nil")
-	}
-
 	var valErrors []string
 
 	// 1. Trích xuất các trường định danh cơ bản
