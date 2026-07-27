@@ -200,6 +200,9 @@
 * [x] Viết unit test cho timer flush.
 * [x] Viết unit test cho end-of-file flush.
 
+### Phase 9 FIX bổ sung
+* [x] Tinh chỉnh Micro-Batching về ngưỡng siêu nhỏ (MaxBatchSize=20, MaxBatchBytes=16KB, FlushInterval=500ms) tối ưu TCP I/O & Zstd bandwidth, nhường việc batch lớn cho Rust engine.
+
 ---
 
 ## Phase 10 — Go Replay Checkpoint (MinIO S3 Store)
