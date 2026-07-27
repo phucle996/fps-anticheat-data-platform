@@ -497,13 +497,13 @@
 
 ## Phase 25 — Dedicated Rust ONNX Runtime Engine (`apps/ml-platform/rust-inference/`)
 
-* [ ] Khởi tạo module Rust ML/AI Inference (`apps/ml-platform/rust-inference`).
-* [ ] Tích hợp ONNX Runtime C-bindings (`ort` crate) vào `rust-inference`.
-* [ ] Nhận tín hiệu IPC trực tiếp từ Python ML Worker khi model mới sẵn sàng (Zero Kafka overhead nội bộ).
-* [ ] Đọc trực tiếp và verify checksum ONNX Model Bundle từ local shared directory (`models/v1/`).
-* [ ] Atomic Hot-Swap mô hình ONNX trong RAM (Zero Downtime).
-* [ ] Chạy Tensor Inference trực tiếp cho tập dữ liệu Gold features.
-* [ ] Viết unit test cho Rust ONNX Engine trong `apps/ml-platform/rust-inference`.
+* [x] Khởi tạo module Rust ML/AI Inference (`apps/ml-platform/rust-inference`).
+* [x] Tích hợp ONNX Runtime C-bindings (`ort` crate) vào `rust-inference`.
+* [x] Nhận tín hiệu IPC trực tiếp từ Python ML Worker khi model mới sẵn sàng (Zero Kafka overhead nội bộ).
+* [x] Đọc trực tiếp và verify checksum ONNX Model Bundle từ local shared directory (`models/v1/`).
+* [x] Atomic Hot-Swap mô hình ONNX trong RAM (Zero Downtime).
+* [x] Chạy Tensor Inference trực tiếp cho tập dữ liệu Gold features.
+* [x] Viết unit test cho Rust ONNX Engine trong `apps/ml-platform/rust-inference`.
 
 
 ---
