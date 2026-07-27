@@ -10,14 +10,14 @@ import (
 	"pubg-anti-cheat/go-ingestor/internal/contract"
 )
 
-// BatchConfig định nghĩa cấu hình điều khiển vi luồng Micro-Batching
+// BatchConfig định nghĩa cấu hình Micro-Batching siêu nhỏ (Dành riêng cho Go Ingestor tối ưu I/O & băng thông TCP)
 type BatchConfig struct {
-	MaxBatchSize  int           // Số bản ghi tối đa trước khi trigger flush (vd: 100)
-	MaxBatchBytes int64         // Dung lượng byte tối đa trước khi trigger flush (vd: 65,536 bytes = 64KB)
-	FlushInterval time.Duration // Khoảng thời gian timer flush nhịp định kỳ (vd: 10ms)
+	MaxBatchSize  int           // Số bản ghi tối đa trong micro-batch siêu nhỏ (Mặc định: 20 tin nhắn)
+	MaxBatchBytes int64         // Kích thước byte tối đa trong micro-batch (Mặc định: 16KB = 16,384 bytes)
+	FlushInterval time.Duration // Nhịp timer flush siêu ngắn (Mặc định: 5ms)
 }
 
-// BatchFlusher quản lý bộ đệm Micro-Batching hai luồng (Raw Event và Invalid DLQ)
+// BatchFlusher quản lý bộ đệm Micro-Batching siêu nhỏ (Mục đích: Tiết kiệm syscall I/O và tối ưu nén Zstd sang Kafka, không làm batch lớn)
 type BatchFlusher struct {
 	cfg          BatchConfig
 	producer     Producer
@@ -31,16 +31,19 @@ type BatchFlusher struct {
 	stopOnce     sync.Once                 // Guard đảm bảo channel chỉ close đúng 1 lần (Thread-safe)
 }
 
-// NewBatchFlusher khởi tạo BatchFlusher với cấu hình batch quy định
+// NewBatchFlusher khởi tạo BatchFlusher với các mặc định siêu nhỏ (Super Lightweight Micro-Batching)
 func NewBatchFlusher(cfg BatchConfig, producer Producer) *BatchFlusher {
+	// Micro-batch siêu nhỏ: 20 tin nhắn (đảm bảo latency cực thấp, batch lớn dành cho Rust Engine)
 	if cfg.MaxBatchSize <= 0 {
-		cfg.MaxBatchSize = 100
+		cfg.MaxBatchSize = 20
 	}
+	// Micro-batch 16KB để tối ưu Zstd compression mà không tiêu tốn RAM
 	if cfg.MaxBatchBytes <= 0 {
-		cfg.MaxBatchBytes = 65536
+		cfg.MaxBatchBytes = 16384
 	}
+	// Tần số Flush cực nhanh 5ms
 	if cfg.FlushInterval <= 0 {
-		cfg.FlushInterval = 10 * time.Millisecond
+		cfg.FlushInterval = 5 * time.Millisecond
 	}
 
 	return &BatchFlusher{
@@ -54,14 +57,14 @@ func NewBatchFlusher(cfg BatchConfig, producer Producer) *BatchFlusher {
 	}
 }
 
-// StartTimer kích hoạt vòng lặp Flush nhịp định kỳ theo thời gian (Timer Flush)
+// StartTimer kích hoạt vòng lặp Flush nhịp định kỳ 5ms siêu ngắn
 func (b *BatchFlusher) StartTimer(ctx context.Context) {
 	b.timerTicker = time.NewTicker(b.cfg.FlushInterval)
 	go func() {
 		for {
 			select {
 			case <-b.timerTicker.C:
-				// Flush nhịp định kỳ cả 2 bộ đệm nếu có chứa dữ liệu
+				// Flush nhịp siêu ngắn 5ms để đẩy dữ liệu ngay lập tức
 				_ = b.FlushAll(ctx)
 			case <-b.stopTickerCh:
 				return
@@ -82,7 +85,7 @@ func (b *BatchFlusher) StopTimer() {
 	})
 }
 
-// AddEvent thêm 1 EventEnvelope hợp lệ vào bộ đệm, tự động Flush nếu đạt ranh giới (Count hoặc Bytes)
+// AddEvent thêm 1 EventEnvelope hợp lệ vào bộ đệm micro-batch, tự động Flush khi đủ 20 tin hoặc 16KB
 func (b *BatchFlusher) AddEvent(ctx context.Context, envelope *contract.EventEnvelope) (int64, error) {
 	b.mu.Lock()
 
@@ -99,7 +102,7 @@ func (b *BatchFlusher) AddEvent(ctx context.Context, envelope *contract.EventEnv
 	return 0, nil
 }
 
-// AddInvalid thêm 1 InvalidRecord vào bộ đệm DLQ, tự động Flush nếu đạt ranh giới
+// AddInvalid thêm 1 InvalidRecord vào bộ đệm micro-batch DLQ
 func (b *BatchFlusher) AddInvalid(ctx context.Context, invalid *contract.InvalidRecord) (int64, error) {
 	b.mu.Lock()
 
@@ -116,7 +119,7 @@ func (b *BatchFlusher) AddInvalid(ctx context.Context, invalid *contract.Invalid
 	return 0, nil
 }
 
-// FlushRaw thực thi phát toàn bộ EventEnvelope trong bộ đệm sang Kafka (Trả về số bản ghi phát thành công)
+// FlushRaw thực thi phát mảng micro-batch EventEnvelope sang Kafka
 func (b *BatchFlusher) FlushRaw(ctx context.Context) (int64, error) {
 	b.mu.Lock()
 	if len(b.rawEnvelopes) == 0 {
@@ -144,7 +147,7 @@ func (b *BatchFlusher) FlushRaw(ctx context.Context) (int64, error) {
 	return count, nil
 }
 
-// FlushInvalid thực thi phát toàn bộ InvalidRecord trong bộ đệm sang Kafka DLQ
+// FlushInvalid thực thi phát mảng micro-batch InvalidRecord sang Kafka DLQ
 func (b *BatchFlusher) FlushInvalid(ctx context.Context) (int64, error) {
 	b.mu.Lock()
 	if len(b.invalidRecs) == 0 {
@@ -183,5 +186,5 @@ func (b *BatchFlusher) FlushAll(ctx context.Context) error {
 	return nil
 }
 
-// Ensure Producer interface check
+// Compile-time interface assertion
 var _ json.Marshaler = (json.Marshaler)(nil)
