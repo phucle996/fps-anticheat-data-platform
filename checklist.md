@@ -633,3 +633,13 @@
 * [ ] Hoàn thiện architecture document & data dictionary.
 * [ ] Tạo demo sample dataset và `make demo` command.
 * [ ] Chuẩn bị screenshots và video demo dự phòng.
+
+---
+
+## Phase 37 — Refactor Go Ingestor Real-Time Stream Replay Engine
+
+### Tái cấu trúc Go Dataset Ingestor sang luồng phát sự kiện rải rác thời gian thực (Real-Time Event Stream Replay)
+* [ ] Tải 1 lần file Kaggle dataset gốc về đĩa đệm local (`data/raw/`).
+* [ ] Cấu hình Streaming CSV Line-by-Line Reader (`bufio.Scanner`) nạp dữ liệu rải rác.
+* [ ] Thêm Ticker & Rate Limiter giả lập khoảng trễ tự nhiên giữa các bản ghi game events (`10ms - 50ms Jitter`).
+* [ ] Giữ nguyên kích thước batch hiện tại và duy trì bộ nhớ đệm RAM của Go Ingestor siêu nhẹ (< 15MB RAM).
