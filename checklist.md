@@ -160,21 +160,21 @@
 
 ## Phase 8 — Go Kafka Producer
 
-* [ ] Tạo producer interface.
-* [ ] Tạo Kafka producer implementation.
-* [ ] Load Kafka broker configuration.
-* [ ] Serialize event thành JSON.
-* [ ] Dùng `match_id` làm message key.
-* [ ] Route valid event vào raw topic.
-* [ ] Route invalid event vào invalid topic.
-* [ ] Cấu hình `acks=all`.
-* [ ] Cấu hình retry.
-* [ ] Cấu hình Zstandard compression.
-* [ ] Bật idempotent producer.
-* [ ] Xử lý delivery result.
-* [ ] Xử lý Kafka unavailable.
-* [ ] Đóng producer khi shutdown.
-* [ ] Viết Kafka integration test.
+* [x] Tạo producer interface.
+* [x] Tạo Kafka producer implementation.
+* [x] Load Kafka broker configuration.
+* [x] Serialize event thành JSON.
+* [x] Dùng `match_id` làm message key.
+* [x] Route valid event vào raw topic.
+* [x] Route invalid event vào invalid topic.
+* [x] Cấu hình `acks=all`.
+* [x] Cấu hình retry.
+* [x] Cấu hình Zstandard compression.
+* [x] Bật idempotent producer.
+* [x] Xử lý delivery result.
+* [x] Xử lý Kafka unavailable.
+* [x] Đóng producer khi shutdown.
+* [x] Viết Kafka integration test.
 
 ---
 

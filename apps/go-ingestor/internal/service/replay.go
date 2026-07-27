@@ -34,22 +34,24 @@ type Replayer struct {
 	cfg        ReplayerConfig
 	parser     Parser
 	normalizer Normalizer
+	producer   Producer // Kafka Producer (Fail-Close)
 	log        *logrus.Entry
 	stats      ReplayStatistics
 }
 
-// NewReplayer khởi tạo Replayer
-func NewReplayer(cfg ReplayerConfig, p Parser, n Normalizer, log *logrus.Entry) *Replayer {
+// NewReplayer khởi tạo Replayer với optional producer
+func NewReplayer(cfg ReplayerConfig, p Parser, n Normalizer, producer Producer, log *logrus.Entry) *Replayer {
 	return &Replayer{
 		cfg:        cfg,
 		parser:     p,
 		normalizer: n,
+		producer:   producer,
 		log:        log,
 		stats:      ReplayStatistics{},
 	}
 }
 
-// Run thực thi vòng lặp Replay Loop
+// Run thực thi vòng lặp Replay Loop với cơ chế Fail-Close khi Kafka phát lỗi
 func (r *Replayer) Run(ctx context.Context) (*ReplayStatistics, error) {
 	startTime := time.Now()
 	r.log.WithFields(logrus.Fields{
@@ -102,21 +104,47 @@ func (r *Replayer) Run(ctx context.Context) (*ReplayStatistics, error) {
 			return &r.stats, normErr
 		}
 
+		// Xử lý bản ghi bị vi phạm Validation (Invalid Record)
 		if invalidRecord != nil {
 			r.stats.InvalidRecords++
+			if !r.cfg.DryRun && r.producer != nil {
+				// Phát bản ghi lỗi vào DLQ Topic; nếu thất bại -> Fail-Close ngắt tiến trình!
+				if err := r.producer.ProduceInvalid(ctx, invalidRecord); err != nil {
+					r.log.WithError(err).Error("Fail-Close: Không thể phát bản ghi lỗi vào Kafka DLQ")
+					return &r.stats, fmt.Errorf("fail-close DLQ produce: %w", err)
+				}
+			}
 			continue
 		}
 
+		// Xử lý bản ghi hợp lệ (Valid Event Envelope)
 		if envelope != nil {
 			r.stats.ValidRecords++
-			r.stats.ProducedRecords++
+
+			if r.cfg.DryRun {
+				r.stats.ProducedRecords++
+				if r.stats.ProducedRecords%1000 == 0 || r.stats.ProducedRecords == 1 {
+					r.log.WithFields(logrus.Fields{
+						"event_id":  envelope.EventID,
+						"match_id":  envelope.MatchID,
+						"player_id": envelope.PlayerID,
+					}).Info("[Dry-Run] Mẫu Event Envelope được chuẩn hóa thành công")
+				}
+			} else if r.producer != nil {
+				// Phát bản ghi hợp lệ vào Kafka Raw Topic (Key = match_id); nếu thất bại -> Fail-Close!
+				if err := r.producer.ProduceEvent(ctx, envelope); err != nil {
+					r.log.WithError(err).Error("Fail-Close: Không thể phát bản ghi vào Kafka Raw Topic")
+					return &r.stats, fmt.Errorf("fail-close raw produce: %w", err)
+				}
+				r.stats.ProducedRecords++
+			}
 		}
 	}
 
 	return &r.stats, nil
 }
 
-// ReplayService điều phối usecase Replay Dataset từ MinIO S3
+// ReplayService điều phối usecase Replay Dataset từ MinIO S3 phát vào Kafka
 type ReplayService struct {
 	cfg      *config.Config
 	minioCli *MinIOClient
@@ -145,8 +173,20 @@ func NewReplayService(cfg *config.Config, log *logrus.Entry) (*ReplayService, er
 
 // Run thực thi Replay Service
 func (s *ReplayService) Run(ctx context.Context, replayCfg ReplayerConfig) (*ReplayStatistics, error) {
-	s.log.Info("Khởi động Use Case Replay Dataset (Flat Architecture)...")
+	s.log.Info("Khởi động Use Case Replay Dataset (Kafka Integrated)...")
 
+	// 1. Nếu không chạy Dry-Run, khởi tạo Kafka Producer (Fail-Close nếu thiếu config)
+	var kafkaProducer Producer
+	if !replayCfg.DryRun {
+		var err error
+		kafkaProducer, err = NewKafkaProducer(s.cfg.KafkaBrokers, s.cfg.KafkaRawTopic, s.cfg.KafkaInvalidTopic, s.log)
+		if err != nil {
+			return nil, fmt.Errorf("khởi tạo Kafka Producer thất bại (Fail-Close): %w", err)
+		}
+		defer kafkaProducer.Close()
+	}
+
+	// 2. Đọc Dataset Manifest từ MinIO S3
 	manifestObjectKey := "manifests/dataset-manifest.json"
 	manifestObj, err := s.minioCli.DownloadStream(ctx, manifestObjectKey)
 	if err != nil {
@@ -159,6 +199,7 @@ func (s *ReplayService) Run(ctx context.Context, replayCfg ReplayerConfig) (*Rep
 		return nil, fmt.Errorf("không thể decode Dataset Manifest JSON: %w", err)
 	}
 
+	// 3. Tải luồng CSV stream từ MinIO S3
 	csvObj, err := s.minioCli.DownloadStream(ctx, manifest.ExtractedPath)
 	if err != nil {
 		return nil, fmt.Errorf("không thể tải CSV stream từ MinIO: %w", err)
@@ -173,10 +214,11 @@ func (s *ReplayService) Run(ctx context.Context, replayCfg ReplayerConfig) (*Rep
 
 	normalizer := NewPlayerStatNormalizer(manifest.DatasetID)
 
-	replayerEngine := NewReplayer(replayCfg, csvParser, normalizer, s.log)
+	// 4. Khởi tạo và thực thi Replayer Loop với Producer
+	replayerEngine := NewReplayer(replayCfg, csvParser, normalizer, kafkaProducer, s.log)
 	stats, err := replayerEngine.Run(ctx)
 	if err != nil && !strings.Contains(err.Error(), "context canceled") {
-		return stats, fmt.Errorf("lỗi trong vòng lặp Replay Loop: %w", err)
+		return stats, fmt.Errorf("lỗi trong vòng lặp Replay Loop (Fail-Close Triggered): %w", err)
 	}
 
 	return stats, nil
