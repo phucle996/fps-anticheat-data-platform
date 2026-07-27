@@ -1,12 +1,10 @@
-package csv
+package parser
 
 import (
 	"encoding/csv"
 	"fmt"
 	"io"
 	"strings"
-
-	"pubg-anti-cheat/go-ingestor/internal/parser"
 )
 
 // -----------------------------------------------------------------------------
@@ -14,8 +12,8 @@ import (
 // -----------------------------------------------------------------------------
 
 // NewRawRecord tạo một đối tượng RawRecord mới với map khởi tạo sẵn
-func NewRawRecord(sourceFile string, recordIndex int64) *parser.RawRecord {
-	return &parser.RawRecord{
+func NewRawRecord(sourceFile string, recordIndex int64) *RawRecord {
+	return &RawRecord{
 		SourceFile:  sourceFile,
 		RecordIndex: recordIndex,
 		Fields:      make(map[string]string),
@@ -53,7 +51,7 @@ func (cm ColumnMap) GetField(row []string, colName string) string {
 // 3. CSV Streaming Parser Implementation
 // -----------------------------------------------------------------------------
 
-// CSVParser triển khai interface parser.Parser để đọc luồng CSV dòng qua dòng (Streaming)
+// CSVParser triển khai interface Parser để đọc luồng CSV dòng qua dòng (Streaming)
 type CSVParser struct {
 	reader      *csv.Reader // Go Standard CSV Reader
 	sourceFile  string      // Tên file nguồn (vd: train_V2.csv)
@@ -91,13 +89,13 @@ func NewCSVParser(reader io.Reader, sourceFile string) (*CSVParser, error) {
 }
 
 // Next đọc dòng CSV tiếp theo trong luồng stream và trả về RawRecord
-func (p *CSVParser) Next() (*parser.RawRecord, error) {
+func (p *CSVParser) Next() (*RawRecord, error) {
 	// 1. Nếu chưa đọc Header, đọc dòng đầu tiên làm Header để tạo ColumnMap
 	if !p.headerRead {
 		headerRow, err := p.reader.Read()
 		if err != nil {
 			if err == io.EOF {
-				return nil, parser.ErrEOF
+				return nil, ErrEOF
 			}
 			return nil, fmt.Errorf("lỗi khi đọc Header CSV: %w", err)
 		}
@@ -110,7 +108,7 @@ func (p *CSVParser) Next() (*parser.RawRecord, error) {
 		row, err := p.reader.Read()
 		if err != nil {
 			if err == io.EOF {
-				return nil, parser.ErrEOF
+				return nil, ErrEOF
 			}
 			return nil, fmt.Errorf("lỗi khi đọc dòng CSV: %w", err)
 		}

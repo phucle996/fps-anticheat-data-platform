@@ -107,7 +107,8 @@
 * [x] Viết unit test cho parser.
 
 ### Phase 5 FIX bổ sung
-* [x] Tổ chức tập trung unit tests & testdata vào thư mục test chung (`internal/test/parser/csv/`).
+* [x] Gom toàn bộ CSV Parser thành file duy nhất (`internal/parser/csv.go`).
+* [x] Tổ chức tập trung unit tests & testdata vào thư mục test chung (`internal/test/parser/`).
 
 ---
 

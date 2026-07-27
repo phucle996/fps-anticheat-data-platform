@@ -1,4 +1,4 @@
-package csv_test
+package parser_test
 
 import (
 	"bytes"
@@ -7,20 +7,19 @@ import (
 	"testing"
 
 	"pubg-anti-cheat/go-ingestor/internal/parser"
-	"pubg-anti-cheat/go-ingestor/internal/parser/csv"
 )
 
-// TestCSVParser_ValidStream kiểm tra đọc thành công dòng qua dòng từ CSV hợp lệ trong internal/test/parser/csv/
+// TestCSVParser_ValidStream kiểm tra đọc thành công dòng qua dòng từ CSV hợp lệ trong internal/test/parser/
 func TestCSVParser_ValidStream(t *testing.T) {
-	// 1. Mở file testdata/valid.csv nằm trong internal/test/parser/csv/testdata/
+	// 1. Mở file testdata/valid.csv nằm trong internal/test/parser/testdata/
 	file, err := os.Open("testdata/valid.csv")
 	if err != nil {
 		t.Fatalf("Không thể mở file testdata/valid.csv: %v", err)
 	}
 	defer file.Close()
 
-	// 2. Khởi tạo CSVParser với luồng stream file
-	p, err := csv.NewCSVParser(file, "train_V2.csv")
+	// 2. Khởi tạo CSVParser từ package parser với luồng stream file
+	p, err := parser.NewCSVParser(file, "train_V2.csv")
 	if err != nil {
 		t.Fatalf("Khởi tạo CSVParser thất bại: %v", err)
 	}
@@ -70,7 +69,7 @@ func TestCSVParser_EmptyLineSkipping(t *testing.T) {
 	buf := bytes.NewBufferString(csvData)
 
 	// Khởi tạo CSVParser từ Buffer stream
-	p, err := csv.NewCSVParser(buf, "test.csv")
+	p, err := parser.NewCSVParser(buf, "test.csv")
 	if err != nil {
 		t.Fatalf("Khởi tạo CSVParser thất bại: %v", err)
 	}
