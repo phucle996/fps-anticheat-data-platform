@@ -249,20 +249,20 @@
 
 ## Phase 12 — Rust Kafka Consumer
 
-* [ ] Kết nối Kafka broker.
-* [ ] Tạo consumer group.
-* [ ] Subscribe raw topic.
-* [ ] Tắt automatic offset commit.
-* [ ] Poll Kafka messages.
-* [ ] Đọc topic metadata.
-* [ ] Đọc partition.
-* [ ] Đọc offset.
-* [ ] Deserialize JSON event.
-* [ ] Xử lý malformed JSON.
-* [ ] Đưa event vào Batch Accumulator.
-* [ ] Xử lý partition revoke.
-* [ ] Xử lý graceful shutdown.
-* [ ] Viết consumer integration test.
+* [x] Kết nối Kafka broker.
+* [x] Tạo consumer group.
+* [x] Subscribe raw topic.
+* [x] Tắt automatic offset commit.
+* [x] Poll Kafka messages.
+* [x] Đọc topic metadata.
+* [x] Đọc partition.
+* [x] Đọc offset.
+* [x] Deserialize JSON event.
+* [x] Xử lý malformed JSON.
+* [x] Đưa event vào Batch Accumulator.
+* [x] Xử lý partition revoke.
+* [x] Xử lý graceful shutdown.
+* [x] Viết consumer integration test.
 
 ---
 

@@ -1,9 +1,4 @@
-mod config;
-mod domain;
-mod error;
-
-use config::Config;
-use error::Result;
+use rust_processor::{Config, KafkaConsumer, Result};
 use tracing::{info, warn};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
@@ -18,7 +13,7 @@ async fn main() -> Result<()> {
 		.with(json_formatting)
 		.init();
 
-	info!("Khởi động tiến trình Rust Stream Processor Engine (Phase 11 Foundation)...");
+	info!("Khởi động tiến trình Rust Stream Processor Engine (Phase 12 Kafka Consumer Active)...");
 
 	// 2. Nạp cấu hình ứng dụng từ biến môi trường (Fail-Close 100%)
 	let config = match Config::from_env() {
@@ -35,11 +30,43 @@ async fn main() -> Result<()> {
 		group_id = %config.kafka_group_id,
 		minio_endpoint = %config.minio_endpoint,
 		minio_bucket = %config.minio_bucket,
-		batch_size = config.batch_size,
-		flush_interval_ms = config.flush_interval_ms,
-		"Đã khởi tạo thành công cấu hình Rust Processor Nền Móng"
+		"Đã khởi tạo thành công cấu hình Rust Processor"
 	);
 
-	info!("Rust Stream Processor sẵn sàng tiếp nhận luồng xử lý từ Kafka!");
+	// 3. Khởi tạo KafkaConsumer với enable.auto.commit = false
+	let consumer = KafkaConsumer::new(&config)?;
+	info!("KafkaConsumer đã sẵn sàng nhận luồng sự kiện từ Kafka Topic: {}", config.kafka_raw_topic);
+
+	info!("Bắt đầu vòng lặp Consumer Loop (At-Least-Once Active)...");
+	loop {
+		tokio::select! {
+			_ = tokio::signal::ctrl_c() => {
+				info!("Nhận tín hiệu Graceful Shutdown từ OS (Ctrl+C), dừng Consumer Loop...");
+				break;
+			}
+			msg_result = consumer.recv_message() => {
+				match msg_result {
+					Ok(Some(msg)) => {
+						info!(
+							event_id = %msg.envelope.event_id,
+							match_id = %msg.envelope.match_id,
+							player_id = %msg.envelope.player_id,
+							partition = msg.partition,
+							offset = msg.offset,
+							"Đã nhận và giải mã JSON Event Envelope thành công từ Kafka"
+						);
+					}
+					Ok(None) => {
+						// Bỏ qua tin nhắn rỗng hoặc malformed JSON
+					}
+					Err(err) => {
+						warn!(error = %err, "Lỗi khi nhận tin nhắn Kafka (Fail-Close Pending)");
+					}
+				}
+			}
+		}
+	}
+
+	info!("Tiến trình Rust Stream Processor kết thúc an toàn.");
 	Ok(())
 }
