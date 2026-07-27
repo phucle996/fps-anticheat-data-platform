@@ -7,14 +7,28 @@ Thư mục **`apps/ml-platform/`** chứa hệ sinh thái 3 dịch vụ vi mô (
 ## 🏛️ Kiến Trúc 3-trong-1 (3-in-1 Unified Architecture)
 
 ```text
-[ Go REST API Gateway ] ◄──(HTTP REST /api/v1/predict)──► [ Clients / Streamlit ]
-          │
-          │ (Unix Domain Socket IPC: /tmp/rust_inference.sock - Latency < 0.1ms)
-          ▼
-[ Rust ONNX Inference Engine ] ──(Đọc trực tiếp model.onnx)──► [ Shared Model Storage: models/v1/ ]
-          ▲                                                                   ▲
-          │ (UDS Notification Signal)                                         │ (Export ONNX)
-          └─── [ Python ML Training Engine ] ─────────────────────────────────┘
++-----------------------------------------------------------------------------------------+
+|                              ML PLATFORM ARCHITECTURE OVERVIEW                          |
++-----------------------------------------------------------------------------------------+
+
+   +--------------------------+                         +--------------------------+
+   |   Streamlit / Clients    | <--- [ HTTP REST ] ---> |      Go API Gateway      |
+   +--------------------------+    /api/v1/predict      +--------------------------+
+                                                                     |
+                                                                     |  (Unix Domain Socket IPC)
+                                                                     |  /tmp/rust_inference.sock
+                                                                     |  [ Latency < 0.1ms ]
+                                                                     v
+   +--------------------------+                         +--------------------------+
+   | Shared Local Storage     | <--- [ Load ONNX ] ---- |   Rust Inference Engine  |
+   |   (models/v1/model.onnx) |                         +--------------------------+
+   +--------------------------+                                      ^
+                 ^                                                   |
+                 | (Export ONNX)                                     | (UDS Hot-Swap Signal)
+                 |                                                   |
+   +-----------------------------------------------------------------+
+   |                 Python ML Training Worker Engine                |
+   +-----------------------------------------------------------------+
 ```
 
 ---
