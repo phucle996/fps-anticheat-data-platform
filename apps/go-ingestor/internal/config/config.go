@@ -6,26 +6,27 @@ import (
 	"strings"
 )
 
-// Config chứa toàn bộ thông số cấu hình của Go Ingestor
+// Config chứa toàn bộ thông số cấu hình của Go Ingestor (Áp dụng nghiêm ngặt nguyên tắc Fail-Close 100%)
 type Config struct {
-	KaggleUsername    string   // Username tài khoản Kaggle
-	KaggleKey         string   // API Key xác thực Kaggle
-	DatasetSlug       string   // Slug dataset trên Kaggle (vd: daniboy370/pubg-finish-placement-prediction)
-	SelectedFile      string   // Tên file CSV chính cần trích xuất (vd: train_V2.csv)
-	MinIOEndpoint     string   // Endpoint của MinIO S3 (vd: localhost:9000)
-	MinIOAccessKey    string   // MinIO Access Key
-	MinIOSecretKey    string   // MinIO Secret Key
-	MinIOBucket       string   // Tên MinIO bucket chính (vd: pubg-data)
+	KaggleUsername    string   // Username tài khoản Kaggle (Fail-Close nếu rỗng khi sync)
+	KaggleKey         string   // API Key xác thực Kaggle (Fail-Close nếu rỗng khi sync)
+	DatasetSlug       string   // Slug dataset trên Kaggle (Bắt buộc KAGGLE_DATASET_SLUG)
+	SelectedFile      string   // Tên file CSV chính cần trích xuất (Bắt buộc KAGGLE_SELECTED_FILE)
+	MinIOEndpoint     string   // Endpoint của MinIO S3 (Bắt buộc MINIO_ENDPOINT)
+	MinIOAccessKey    string   // MinIO Access Key (Bắt buộc MINIO_ACCESS_KEY)
+	MinIOSecretKey    string   // MinIO Secret Key (Bắt buộc MINIO_SECRET_KEY)
+	MinIOBucket       string   // Tên MinIO bucket chính (Bắt buộc MINIO_BUCKET)
 	MinIOUseSSL       bool     // Sử dụng SSL/TLS kết nối MinIO không
-	ForceDownload     bool     // Bắt buộc tải lại dù dataset đã tồn tại
-	KafkaBrokers      []string // Danh sách Kafka Brokers (Fail-Close nếu thiếu)
-	KafkaRawTopic     string   // Topic Kafka phát dữ liệu chuẩn (pubg.v1.player-stat.raw)
-	KafkaInvalidTopic string   // Topic Kafka phát dữ liệu lỗi (pubg.v1.invalid)
+	ForceDownload     bool     // Bắt buộc tải lại dataset dù đã tồn tại
+	KafkaBrokers      []string // Danh sách Kafka Brokers (Bắt buộc KAFKA_BROKERS)
+	KafkaRawTopic     string   // Topic Kafka phát dữ liệu chuẩn (Bắt buộc KAFKA_RAW_TOPIC)
+	KafkaInvalidTopic string   // Topic Kafka phát dữ liệu lỗi (Bắt buộc KAFKA_INVALID_TOPIC)
 }
 
-// LoadFromEnv nạp cấu hình từ Environment Variables (Áp dụng Fail-Close validation)
+// LoadFromEnv nạp cấu hình từ Environment Variables (Tuyệt đối KHÔNG có fallback ngầm, Fail-Close hoàn toàn)
 func LoadFromEnv() (*Config, error) {
-	brokersStr := os.Getenv("KAFKA_BROKERS")
+	// Parse danh sách Kafka brokers từ KAFKA_BROKERS (phân tách bởi dấu phẩy)
+	brokersStr := strings.TrimSpace(os.Getenv("KAFKA_BROKERS"))
 	var brokers []string
 	if brokersStr != "" {
 		for _, b := range strings.Split(brokersStr, ",") {
@@ -37,58 +38,65 @@ func LoadFromEnv() (*Config, error) {
 	}
 
 	cfg := &Config{
-		KaggleUsername:    getEnv("KAGGLE_USERNAME", ""),
-		KaggleKey:         getEnv("KAGGLE_KEY", ""),
-		DatasetSlug:       getEnv("KAGGLE_DATASET_SLUG", "daniboy370/pubg-finish-placement-prediction"),
-		SelectedFile:      getEnv("KAGGLE_SELECTED_FILE", "train_V2.csv"),
-		MinIOEndpoint:     getEnv("MINIO_ENDPOINT", "localhost:9000"),
-		MinIOAccessKey:    getEnv("MINIO_ACCESS_KEY", "minioadmin"),
-		MinIOSecretKey:    getEnv("MINIO_SECRET_KEY", "minioadmin"),
-		MinIOBucket:       getEnv("MINIO_BUCKET", "pubg-data"),
-		MinIOUseSSL:       getEnv("MINIO_USE_SSL", "false") == "true",
-		ForceDownload:     getEnv("FORCE_DOWNLOAD", "false") == "true",
+		KaggleUsername:    strings.TrimSpace(os.Getenv("KAGGLE_USERNAME")),
+		KaggleKey:         strings.TrimSpace(os.Getenv("KAGGLE_KEY")),
+		DatasetSlug:       strings.TrimSpace(os.Getenv("KAGGLE_DATASET_SLUG")),
+		SelectedFile:      strings.TrimSpace(os.Getenv("KAGGLE_SELECTED_FILE")),
+		MinIOEndpoint:     strings.TrimSpace(os.Getenv("MINIO_ENDPOINT")),
+		MinIOAccessKey:    strings.TrimSpace(os.Getenv("MINIO_ACCESS_KEY")),
+		MinIOSecretKey:    strings.TrimSpace(os.Getenv("MINIO_SECRET_KEY")),
+		MinIOBucket:       strings.TrimSpace(os.Getenv("MINIO_BUCKET")),
+		MinIOUseSSL:       strings.TrimSpace(os.Getenv("MINIO_USE_SSL")) == "true",
+		ForceDownload:     strings.TrimSpace(os.Getenv("FORCE_DOWNLOAD")) == "true",
 		KafkaBrokers:      brokers,
-		KafkaRawTopic:     os.Getenv("KAFKA_RAW_TOPIC"),     // Fail-Close: Không set default
-		KafkaInvalidTopic: os.Getenv("KAFKA_INVALID_TOPIC"), // Fail-Close: Không set default
+		KafkaRawTopic:     strings.TrimSpace(os.Getenv("KAFKA_RAW_TOPIC")),
+		KafkaInvalidTopic: strings.TrimSpace(os.Getenv("KAFKA_INVALID_TOPIC")),
 	}
 
-	// Validate nghiêm ngặt: Kiểm tra Fail-Close nếu thiếu biến quan trọng
+	// Thực hiện Validate nghiêm ngặt: Nếu thiếu bất kỳ biến môi trường nào -> Fail-Close lập tức!
 	if err := cfg.Validate(); err != nil {
-		return nil, fmt.Errorf("cấu hình không hợp lệ (Fail-Close): %w", err)
+		return nil, fmt.Errorf("cấu hình thất bại (Fail-Close Active): %w", err)
 	}
 
 	return cfg, nil
 }
 
-// Validate kiểm tra tính hợp lệ của các thuộc tính bắt buộc (Fail-Fast)
+// Validate kiểm tra tính bắt buộc của 100% các biến môi trường (Fail-Close 100%, ZERO Fallback)
 func (c *Config) Validate() error {
+	var missingVars []string
+
 	if c.DatasetSlug == "" {
-		return fmt.Errorf("KAGGLE_DATASET_SLUG không được để trống")
+		missingVars = append(missingVars, "KAGGLE_DATASET_SLUG")
+	}
+	if c.SelectedFile == "" {
+		missingVars = append(missingVars, "KAGGLE_SELECTED_FILE")
 	}
 	if c.MinIOEndpoint == "" {
-		return fmt.Errorf("MINIO_ENDPOINT không được để trống")
+		missingVars = append(missingVars, "MINIO_ENDPOINT")
+	}
+	if c.MinIOAccessKey == "" {
+		missingVars = append(missingVars, "MINIO_ACCESS_KEY")
+	}
+	if c.MinIOSecretKey == "" {
+		missingVars = append(missingVars, "MINIO_SECRET_KEY")
 	}
 	if c.MinIOBucket == "" {
-		return fmt.Errorf("MINIO_BUCKET không được để trống")
+		missingVars = append(missingVars, "MINIO_BUCKET")
 	}
-	// Fail-Close Validation cho Kafka Configuration
 	if len(c.KafkaBrokers) == 0 {
-		return fmt.Errorf("KAFKA_BROKERS bắt buộc phải nạp từ môi trường (Fail-Close)")
+		missingVars = append(missingVars, "KAFKA_BROKERS")
 	}
 	if c.KafkaRawTopic == "" {
-		return fmt.Errorf("KAFKA_RAW_TOPIC bắt buộc phải nạp từ môi trường (Fail-Close)")
+		missingVars = append(missingVars, "KAFKA_RAW_TOPIC")
 	}
 	if c.KafkaInvalidTopic == "" {
-		return fmt.Errorf("KAFKA_INVALID_TOPIC bắt buộc phải nạp từ môi trường (Fail-Close)")
+		missingVars = append(missingVars, "KAFKA_INVALID_TOPIC")
 	}
-	return nil
-}
 
-// getEnv đọc giá trị env var hoặc trả về fallback nếu rỗng
-func getEnv(key, fallback string) string {
-	val := os.Getenv(key)
-	if val == "" {
-		return fallback
+	// Nếu thiếu bất kỳ biến nào -> Fail-Close ngắt chương trình ngay lập tức
+	if len(missingVars) > 0 {
+		return fmt.Errorf("phát hiện %d biến môi trường chưa khai báo: [%s] (Fail-Close Rule Violated)", len(missingVars), strings.Join(missingVars, ", "))
 	}
-	return val
+
+	return nil
 }
