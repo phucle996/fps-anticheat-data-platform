@@ -98,46 +98,48 @@
 
 ## 🔄 Dynamic Worker Allocation Pool (`src/worker/dynamic_pool.rs`)
 
-Cơ chế điều phối tự động cấp phát và quản lý tải lượng công việc tới các R Worker subprocesses dựa trên dung lượng hàng chờ đệm và số lượng nhiệm vụ cần xử lý:
+Cơ chế **Dynamic Worker Allocation Pool** KHÔNG áp đặt bất kỳ giới hạn cứng số lượng worker nào (Unbounded Task-Driven Spawning). Mỗi nhiệm vụ Batch Manifest mới sinh ra đều được tự động tạo (spawn) worker bất đồng bộ song song để xử lý ngay tức thì:
 
 ```text
 +-----------------------------------------------------------------------------------------+
-|                  DYNAMIC WORKER ALLOCATION POOL DEDICATED FLOW                          |
+|                  UNBOUNDED DYNAMIC WORKER ALLOCATION FLOW                               |
 +-----------------------------------------------------------------------------------------+
 
-                  Batch Manifest Signal / Task Dispatch Requests
+              Batch Manifest Signals / Dynamic Task Dispatch Stream
                                          |
                                          v
                       +--------------------------------------+
                       |        RDynamicWorkerPool            |
-                      |   (Task Dispatcher & Capacity)       |
+                      |    (Pure Task-Driven Dispatcher)     |
                       +--------------------------------------+
                                          |
-                         +---------------+---------------+
-                         |                               |
-                         v                               v
-             +-----------------------+       +-----------------------+
-             | Dynamic Worker        |       | Dynamic Worker        |
-             | Thread 1 (Active)     |       | Thread N (Max Capacity|
-             +-----------------------+       |  Limit = 64 Workers)  |
-                         |                   +-----------------------+
-                         v                               |
-             +-------------------------------------------------------+
-             |           Async Subprocess Execution (R Script)       |
-             +-------------------------------------------------------+
+           +-----------------------------+-----------------------------+
+           |                             |                             |
+           v                             v                             v
++-----------------------+     +-----------------------+     +-----------------------+
+|  Async R Worker 1     |     |  Async R Worker 2     |     |  Async R Worker N...  |
+| (Spawned on Demand)   |     | (Spawned on Demand)   |     | (Unbounded Scaling)   |
++-----------------------+     +-----------------------+     +-----------------------+
+           |                             |                             |
+           +-----------------------------+-----------------------------+
+                                         | (Subprocess execution complete)
+                                         v
+                      +--------------------------------------+
+                      | Auto Resource Reclamation & Free RAM |
+                      +--------------------------------------+
 ```
 
-### 🧠 Giải Thích Chi Tiết Dynamic Worker Allocation:
-- **Tự động Co/Giãn theo Tải (Dynamic Capacity Allocation)**:
-  - Khi luồng dữ liệu thô nạp vào liên tục tạo các Batch Manifest mới, `RDynamicWorkerPool` cấp phát linh hoạt các Worker Threads để kích hoạt R Worker subprocesses xử lý song song (Tối đa `max_capacity = 64` workers).
-- **Thu Hồi Tài Nguyên (Resource Reclamation)**:
-  - Ngay khi công việc xử lý batch hoàn tất, subprocess nhàn rỗi được tự động giải phóng để giải phóng CPU core và RAM cho cụm Kubernetes/HA Node.
+### 🧠 Giải Thích Chi Tiết Unbounded Dynamic Worker Allocation:
+- **Không Giới Hạn Worker Cố Định (Unbounded Task-Driven Spawning)**:
+  - Hệ thống không khống chế số lượng worker cố định mà khởi tạo (spawn) ngẫu nhiên theo số lượng Batch Manifest phát sinh thực tế.
+- **Tự Động Thu Hồi Tài Nguyên (Auto Reclamation)**:
+  - Ngay khi subprocess hoàn tất công việc, tài nguyên RAM & CPU core lập tức được hệ điều hành tự động thu hồi mà không để lại worker nhàn rỗi.
 
 ---
 
 ## 🛡️ Resource-Driven Hysteresis Circuit Breaker (`src/worker/circuit_breaker.rs`)
 
-Bộ ngắt mạch bảo vệ an toàn hạ tầng dựa trên việc đo lường trực tiếp tài nguyên Linux OS real-time từ `/proc/stat` & `/proc/meminfo`:
+Thay vì giới hạn số lượng worker thủ công, hệ thống sử dụng **Resource-Driven Circuit Breaker** ngắt mạch bảo vệ hạ tầng dựa trên việc đo lường trực tiếp tài nguyên Linux OS real-time từ `/proc/stat` & `/proc/meminfo`:
 
 ```text
 +-----------------------------------------------------------------------------------------+
@@ -195,7 +197,7 @@ apps/rust-processor/src/
 │   └── parquet.rs          # ParquetSerializer (Zstandard Compression & Reader)
 ├── worker/                 # High Availability Dynamic Pool & Circuit Breaker
 │   ├── mod.rs
-│   ├── dynamic_pool.rs     # RDynamicWorkerPool (Pure Resource-Driven Auto-Scaling)
+│   ├── dynamic_pool.rs     # RDynamicWorkerPool (Unbounded Task-Driven Spawner)
 │   ├── circuit_breaker.rs  # ResourceCircuitBreaker (Hysteresis Gap: 80%/85% High, 75%/80% Low)
 │   └── r_spawner.rs        # RWorkerSpawner (Async Subprocess Executor)
 └── storage/                # Pipeline Storage (MinIO S3 & Audit Manifest Log)
