@@ -338,18 +338,18 @@
 
 ## Phase 17 — Rust MinIO Bronze Writer
 
-* [ ] Tạo MinIO client.
-* [ ] Load endpoint configuration.
-* [ ] Load access key và secret key.
-* [ ] Kiểm tra bucket tồn tại.
-* [ ] Tạo Bronze object path.
-* [ ] Upload Parquet file.
-* [ ] Kiểm tra object đã tồn tại.
-* [ ] Tính checksum.
-* [ ] Xác nhận upload thành công.
-* [ ] Xử lý upload retry.
-* [ ] Ghi invalid data nếu cần.
-* [ ] Viết MinIO integration test.
+* [x] Tạo MinIO client.
+* [x] Load endpoint configuration.
+* [x] Load access key và secret key.
+* [x] Kiểm tra bucket tồn tại.
+* [x] Tạo Bronze object path.
+* [x] Upload Parquet file.
+* [x] Kiểm tra object đã tồn tại.
+* [x] Tính checksum.
+* [x] Xác nhận upload thành công.
+* [x] Xử lý upload retry.
+* [x] Ghi invalid data nếu cần.
+* [x] Viết MinIO integration test.
 
 ---
 

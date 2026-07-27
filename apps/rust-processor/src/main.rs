@@ -2,11 +2,13 @@ mod config;
 mod domain;
 mod error;
 mod ingest;
+mod storage;
 mod transform;
 
 use config::Config;
 use error::Result;
 use ingest::{BatchAccumulator, BatchAccumulatorConfig, KafkaConsumer};
+use storage::MinioWriter;
 use std::time::Duration;
 use tracing::{info, warn};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
@@ -23,7 +25,7 @@ async fn main() -> Result<()> {
 		.with(json_formatting)
 		.init();
 
-	info!("Khởi động tiến trình Rust Stream Processor Engine (Arrow & Parquet Active)...");
+	info!("Khởi động tiến trình Rust Stream Processor Engine (Phase 17 MinIO Bronze Writer Active)...");
 
 	// 2. Nạp cấu hình ứng dụng từ biến môi trường (Fail-Close 100%)
 	let config = match Config::from_env() {
@@ -45,11 +47,14 @@ async fn main() -> Result<()> {
 		"Đã khởi tạo thành công cấu hình Rust Processor"
 	);
 
-	// 3. Khởi tạo KafkaConsumer với enable.auto.commit = false từ ingest module
+	// 3. Khởi tạo KafkaConsumer với enable.auto.commit = false
 	let consumer = KafkaConsumer::new(&config)?;
 	info!("KafkaConsumer đã sẵn sàng nhận luồng sự kiện từ Kafka Topic: {}", config.kafka_raw_topic);
 
-	// 4. Khởi tạo BatchAccumulator gom tụ dữ liệu RAM
+	// 4. Khởi tạo MinioWriter S3 Client
+	let minio_writer = MinioWriter::new(&config)?;
+
+	// 5. Khởi tạo BatchAccumulator gom tụ dữ liệu RAM
 	let accum_config = BatchAccumulatorConfig {
 		max_records: config.batch_size,
 		max_bytes: 10 * 1024 * 1024,
@@ -57,7 +62,7 @@ async fn main() -> Result<()> {
 	};
 	let mut accumulator = BatchAccumulator::new(accum_config);
 
-	info!("Bắt đầu vòng lặp Consumer Loop (Deduplication + Arrow + Parquet Active)...");
+	info!("Bắt đầu vòng lặp Consumer Loop (MinIO Bronze Writer Active)...");
 	loop {
 		tokio::select! {
 			_ = tokio::signal::ctrl_c() => {
@@ -65,14 +70,25 @@ async fn main() -> Result<()> {
 				if let Some(final_batch) = accumulator.flush() {
 					let val_outcome = EventValidator::validate_batch(final_batch.events);
 					let dedup_outcome = EventDeduplicator::deduplicate_batch(val_outcome.valid_records);
+
+					// Upload bản ghi vi phạm (nếu có)
+					if !val_outcome.invalid_records.is_empty() {
+						let invalid_path = MinioWriter::generate_invalid_path(&final_batch.batch_id, "now");
+						let _ = minio_writer.upload_invalid_records(&invalid_path, &val_outcome.invalid_records).await;
+					}
+
 					if !dedup_outcome.unique_records.is_empty() {
 						let record_batch = ArrowConverter::events_to_record_batch(&dedup_outcome.unique_records)?;
 						let parquet_bytes = ParquetSerializer::record_batch_to_parquet_bytes(&record_batch)?;
+						let bronze_path = MinioWriter::generate_bronze_path(&final_batch.batch_id, "now");
+						let checksum = minio_writer.upload_parquet(&bronze_path, parquet_bytes).await?;
+
 						info!(
 							batch_id = %final_batch.batch_id,
 							records = record_batch.num_rows(),
-							parquet_size_bytes = parquet_bytes.len(),
-							"Đã Flush, Arrow RecordBatch và nén Parquet Zstd thành công khi Shutdown"
+							checksum = %checksum,
+							bronze_path = %bronze_path,
+							"Đã Upload thành công Batch Parquet cuối cùng khi Shutdown"
 						);
 					}
 				}
@@ -85,6 +101,14 @@ async fn main() -> Result<()> {
 							// 1. Data Quality Validation
 							let val_outcome = EventValidator::validate_batch(completed_batch.events);
 
+							// Upload các bản ghi vi phạm Data Quality sang bronze/invalid/
+							if !val_outcome.invalid_records.is_empty() {
+								let invalid_path = MinioWriter::generate_invalid_path(&completed_batch.batch_id, "now");
+								if let Err(err) = minio_writer.upload_invalid_records(&invalid_path, &val_outcome.invalid_records).await {
+									warn!(error = %err, "Lỗi upload invalid records JSON sang MinIO");
+								}
+							}
+
 							// 2. Deduplication trong Batch
 							let dedup_outcome = EventDeduplicator::deduplicate_batch(val_outcome.valid_records);
 
@@ -95,14 +119,19 @@ async fn main() -> Result<()> {
 								// 4. Parquet Zstd Serialization
 								let parquet_bytes = ParquetSerializer::record_batch_to_parquet_bytes(&record_batch)?;
 
+								// 5. MinIO S3 Bronze Layer Upload
+								let sample_time = dedup_outcome.unique_records[0].ingest_time.clone();
+								let bronze_path = MinioWriter::generate_bronze_path(&completed_batch.batch_id, &sample_time);
+								let checksum = minio_writer.upload_parquet(&bronze_path, parquet_bytes).await?;
+
 								info!(
 									batch_id = %completed_batch.batch_id,
 									valid_count = val_outcome.valid_count,
 									dedup_count = dedup_outcome.unique_records.len(),
-									duplicate_filtered = dedup_outcome.duplicate_count,
-									parquet_bytes_len = parquet_bytes.len(),
+									checksum = %checksum,
+									bronze_path = %bronze_path,
 									partitions = ?completed_batch.partition_offsets,
-									"Đã chuyển đổi Arrow RecordBatch & nén Parquet Zstandard thành công"
+									"Đã Upload Parquet Bronze File thành công lên MinIO S3"
 								);
 							}
 						}
@@ -124,12 +153,17 @@ async fn main() -> Result<()> {
 				if !dedup_outcome.unique_records.is_empty() {
 					let record_batch = ArrowConverter::events_to_record_batch(&dedup_outcome.unique_records)?;
 					let parquet_bytes = ParquetSerializer::record_batch_to_parquet_bytes(&record_batch)?;
+					let sample_time = dedup_outcome.unique_records[0].ingest_time.clone();
+					let bronze_path = MinioWriter::generate_bronze_path(&completed_batch.batch_id, &sample_time);
+					let checksum = minio_writer.upload_parquet(&bronze_path, parquet_bytes).await?;
+
 					info!(
 						batch_id = %completed_batch.batch_id,
 						dedup_count = dedup_outcome.unique_records.len(),
-						parquet_bytes_len = parquet_bytes.len(),
+						checksum = %checksum,
+						bronze_path = %bronze_path,
 						partitions = ?completed_batch.partition_offsets,
-						"Đã Trigger Flush Timer, Arrow RecordBatch & nén Parquet Zstandard thành công"
+						"Đã Trigger Flush Timer & Upload Parquet Bronze File thành công lên MinIO S3"
 					);
 				}
 			}

@@ -1,8 +1,9 @@
 use crate::domain::EventEnvelope;
+use serde::{Deserialize, Serialize};
 use tracing::warn;
 
 /// InvalidEnvelopeRecord lưu thông tin sự kiện vi phạm kèm danh sách các lý do vi phạm
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InvalidEnvelopeRecord {
     pub event: EventEnvelope,   // Sự kiện vi phạm
     pub reasons: Vec<String>,    // Danh sách các lý do vi phạm Validation Rules
