@@ -184,21 +184,21 @@
 
 ## Phase 9 — Go Micro-Batching
 
-* [ ] Tạo topic buffer.
-* [ ] Tạo batch structure.
-* [ ] Theo dõi record count.
-* [ ] Theo dõi estimated bytes.
-* [ ] Tạo flush controller.
-* [ ] Flush theo thời gian.
-* [ ] Flush theo record count.
-* [ ] Flush theo batch bytes.
-* [ ] Flush khi hết file.
-* [ ] Flush khi shutdown.
-* [ ] Không đóng gói event thành JSON array.
-* [ ] Chỉ cập nhật statistics sau delivery thành công.
-* [ ] Viết unit test cho batch boundary.
-* [ ] Viết unit test cho timer flush.
-* [ ] Viết unit test cho end-of-file flush.
+* [x] Tạo topic buffer.
+* [x] Tạo batch structure.
+* [x] Theo dõi record count.
+* [x] Theo dõi estimated bytes.
+* [x] Tạo flush controller.
+* [x] Flush theo thời gian.
+* [x] Flush theo record count.
+* [x] Flush theo batch bytes.
+* [x] Flush khi hết file.
+* [x] Flush khi shutdown.
+* [x] Không đóng gói event thành JSON array.
+* [x] Chỉ cập nhật statistics sau delivery thành công.
+* [x] Viết unit test cho batch boundary.
+* [x] Viết unit test cho timer flush.
+* [x] Viết unit test cho end-of-file flush.
 
 ---
 

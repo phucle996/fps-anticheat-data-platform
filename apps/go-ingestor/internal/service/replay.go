@@ -15,9 +15,10 @@ import (
 
 // ReplayerConfig định nghĩa thông số điều khiển replay
 type ReplayerConfig struct {
-	Limit       int64 // Số lượng bản ghi tối đa cần replay (0 = không giới hạn)
-	StartRecord int64 // Chỉ số bản ghi bắt đầu replay (1 = dòng đầu tiên)
-	DryRun      bool  // Cờ chạy thử không phát Kafka
+	Limit         int64       // Số lượng bản ghi tối đa cần replay (0 = không giới hạn)
+	StartRecord   int64       // Chỉ số bản ghi bắt đầu replay (1 = dòng đầu tiên)
+	DryRun        bool        // Cờ chạy thử không phát Kafka
+	MicroBatching BatchConfig // Cấu hình Micro-Batching Flusher
 }
 
 // ReplayStatistics theo dõi bộ đếm thống kê thời gian thực của replay loop
@@ -29,38 +30,48 @@ type ReplayStatistics struct {
 	Duration        time.Duration `json:"duration"`
 }
 
-// Replayer Engine vòng lặp Replay
+// Replayer Engine vòng lặp Replay tích hợp Micro-Batching Flusher
 type Replayer struct {
 	cfg        ReplayerConfig
 	parser     Parser
 	normalizer Normalizer
-	producer   Producer // Kafka Producer (Fail-Close)
+	producer   Producer      // Kafka Producer (Fail-Close)
+	flusher    *BatchFlusher // Bộ đệm Micro-Batching
 	log        *logrus.Entry
 	stats      ReplayStatistics
 }
 
-// NewReplayer khởi tạo Replayer với optional producer
+// NewReplayer khởi tạo Replayer với BatchFlusher
 func NewReplayer(cfg ReplayerConfig, p Parser, n Normalizer, producer Producer, log *logrus.Entry) *Replayer {
+	flusher := NewBatchFlusher(cfg.MicroBatching, producer)
 	return &Replayer{
 		cfg:        cfg,
 		parser:     p,
 		normalizer: n,
 		producer:   producer,
+		flusher:    flusher,
 		log:        log,
 		stats:      ReplayStatistics{},
 	}
 }
 
-// Run thực thi vòng lặp Replay Loop với cơ chế Fail-Close khi Kafka phát lỗi
+// Run thực thi vòng lặp Replay Loop kết hợp Micro-Batching Flusher và Fail-Close
 func (r *Replayer) Run(ctx context.Context) (*ReplayStatistics, error) {
 	startTime := time.Now()
 	r.log.WithFields(logrus.Fields{
 		"start_record": r.cfg.StartRecord,
 		"limit":        r.cfg.Limit,
 		"dry_run":      r.cfg.DryRun,
-	}).Info("Bắt đầu vòng lặp Replay Loop...")
+		"batch_size":   r.cfg.MicroBatching.MaxBatchSize,
+	}).Info("Bắt đầu vòng lặp Replay Loop (Micro-Batching Active)...")
 
+	// Kích hoạt Timer Flush nhịp định kỳ theo thời gian
+	r.flusher.StartTimer(ctx)
+	defer r.flusher.StopTimer()
+
+	// Defer FlushAll khi kết thúc (EOF hoặc Shutdown)
 	defer func() {
+		_ = r.flusher.FlushAll(context.Background())
 		r.stats.Duration = time.Since(startTime)
 		r.log.WithFields(logrus.Fields{
 			"records_read":     r.stats.RecordsRead,
@@ -74,7 +85,7 @@ func (r *Replayer) Run(ctx context.Context) (*ReplayStatistics, error) {
 	for {
 		select {
 		case <-ctx.Done():
-			r.log.Warn("Nhận tín hiệu ngắt Context, dừng vòng lặp Replay...")
+			r.log.Warn("Nhận tín hiệu ngắt Context, dừng vòng lặp Replay và Flush bộ đệm...")
 			return &r.stats, ctx.Err()
 		default:
 		}
@@ -87,7 +98,7 @@ func (r *Replayer) Run(ctx context.Context) (*ReplayStatistics, error) {
 		rawRecord, err := r.parser.Next()
 		if err != nil {
 			if errors.Is(err, ErrEOF) {
-				r.log.Info("Đã đọc tới cuối file CSV (EOF).")
+				r.log.Info("Đã đọc tới cuối file CSV (EOF), thực thi Flush bộ đệm cuối...")
 				break
 			}
 			return &r.stats, fmt.Errorf("lỗi parser read: %w", err)
@@ -107,13 +118,11 @@ func (r *Replayer) Run(ctx context.Context) (*ReplayStatistics, error) {
 		// Xử lý bản ghi bị vi phạm Validation (Invalid Record)
 		if invalidRecord != nil {
 			r.stats.InvalidRecords++
-			if !r.cfg.DryRun && r.producer != nil {
-				// Phát bản ghi lỗi vào DLQ Topic; nếu thất bại -> Fail-Close ngắt tiến trình!
-				if err := r.producer.ProduceInvalid(ctx, invalidRecord); err != nil {
-					r.log.WithError(err).Error("Fail-Close: Không thể phát bản ghi lỗi vào Kafka DLQ")
-					return &r.stats, fmt.Errorf("fail-close DLQ produce: %w", err)
-				}
+			flushedCount, err := r.flusher.AddInvalid(ctx, invalidRecord)
+			if err != nil {
+				return &r.stats, fmt.Errorf("fail-close trong batch invalid flush: %w", err)
 			}
+			_ = flushedCount
 			continue
 		}
 
@@ -121,24 +130,24 @@ func (r *Replayer) Run(ctx context.Context) (*ReplayStatistics, error) {
 		if envelope != nil {
 			r.stats.ValidRecords++
 
+			// Thêm bản ghi vào Micro-Batching Flusher
+			flushedCount, err := r.flusher.AddEvent(ctx, envelope)
+			if err != nil {
+				return &r.stats, fmt.Errorf("fail-close trong batch raw flush: %w", err)
+			}
+
+			// Chỉ cập nhật bộ đếm ProducedRecords khi Delivery thành công
 			if r.cfg.DryRun {
 				r.stats.ProducedRecords++
-				if r.stats.ProducedRecords%1000 == 0 || r.stats.ProducedRecords == 1 {
-					r.log.WithFields(logrus.Fields{
-						"event_id":  envelope.EventID,
-						"match_id":  envelope.MatchID,
-						"player_id": envelope.PlayerID,
-					}).Info("[Dry-Run] Mẫu Event Envelope được chuẩn hóa thành công")
-				}
-			} else if r.producer != nil {
-				// Phát bản ghi hợp lệ vào Kafka Raw Topic (Key = match_id); nếu thất bại -> Fail-Close!
-				if err := r.producer.ProduceEvent(ctx, envelope); err != nil {
-					r.log.WithError(err).Error("Fail-Close: Không thể phát bản ghi vào Kafka Raw Topic")
-					return &r.stats, fmt.Errorf("fail-close raw produce: %w", err)
-				}
-				r.stats.ProducedRecords++
+			} else {
+				r.stats.ProducedRecords += flushedCount
 			}
 		}
+	}
+
+	// Flush toàn bộ dữ liệu dư thừa còn lại trong bộ đệm khi kết thúc vòng lặp (EOF Flush)
+	if err := r.flusher.FlushAll(ctx); err != nil {
+		return &r.stats, fmt.Errorf("fail-close trong EOF flush final: %w", err)
 	}
 
 	return &r.stats, nil
@@ -171,11 +180,10 @@ func NewReplayService(cfg *config.Config, log *logrus.Entry) (*ReplayService, er
 	}, nil
 }
 
-// Run thực thi Replay Service
+// Run thực thi Replay Service với Micro-Batching
 func (s *ReplayService) Run(ctx context.Context, replayCfg ReplayerConfig) (*ReplayStatistics, error) {
-	s.log.Info("Khởi động Use Case Replay Dataset (Kafka Integrated)...")
+	s.log.Info("Khởi động Use Case Replay Dataset (Micro-Batching Integrated)...")
 
-	// 1. Nếu không chạy Dry-Run, khởi tạo Kafka Producer (Fail-Close nếu thiếu config)
 	var kafkaProducer Producer
 	if !replayCfg.DryRun {
 		var err error
@@ -186,7 +194,6 @@ func (s *ReplayService) Run(ctx context.Context, replayCfg ReplayerConfig) (*Rep
 		defer kafkaProducer.Close()
 	}
 
-	// 2. Đọc Dataset Manifest từ MinIO S3
 	manifestObjectKey := "manifests/dataset-manifest.json"
 	manifestObj, err := s.minioCli.DownloadStream(ctx, manifestObjectKey)
 	if err != nil {
@@ -199,7 +206,6 @@ func (s *ReplayService) Run(ctx context.Context, replayCfg ReplayerConfig) (*Rep
 		return nil, fmt.Errorf("không thể decode Dataset Manifest JSON: %w", err)
 	}
 
-	// 3. Tải luồng CSV stream từ MinIO S3
 	csvObj, err := s.minioCli.DownloadStream(ctx, manifest.ExtractedPath)
 	if err != nil {
 		return nil, fmt.Errorf("không thể tải CSV stream từ MinIO: %w", err)
@@ -214,7 +220,6 @@ func (s *ReplayService) Run(ctx context.Context, replayCfg ReplayerConfig) (*Rep
 
 	normalizer := NewPlayerStatNormalizer(manifest.DatasetID)
 
-	// 4. Khởi tạo và thực thi Replayer Loop với Producer
 	replayerEngine := NewReplayer(replayCfg, csvParser, normalizer, kafkaProducer, s.log)
 	stats, err := replayerEngine.Run(ctx)
 	if err != nil && !strings.Contains(err.Error(), "context canceled") {
