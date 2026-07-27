@@ -10,14 +10,14 @@ import (
 	"pubg-anti-cheat/go-ingestor/internal/contract"
 )
 
-// BatchConfig định nghĩa cấu hình Micro-Batching siêu nhỏ (Dành riêng cho Go Ingestor tối ưu I/O & băng thông TCP)
+// BatchConfig định nghĩa cấu hình Micro-Batching (Dành riêng cho Go Ingestor tối ưu I/O & băng thông TCP)
 type BatchConfig struct {
-	MaxBatchSize  int           // Số bản ghi tối đa trong micro-batch siêu nhỏ (Mặc định: 20 tin nhắn)
+	MaxBatchSize  int           // Số bản ghi tối đa trong micro-batch (Mặc định: 20 tin nhắn)
 	MaxBatchBytes int64         // Kích thước byte tối đa trong micro-batch (Mặc định: 16KB = 16,384 bytes)
-	FlushInterval time.Duration // Nhịp timer flush siêu ngắn (Mặc định: 5ms)
+	FlushInterval time.Duration // Nhịp timer flush cân bằng (Mặc định: 500ms)
 }
 
-// BatchFlusher quản lý bộ đệm Micro-Batching siêu nhỏ (Mục đích: Tiết kiệm syscall I/O và tối ưu nén Zstd sang Kafka, không làm batch lớn)
+// BatchFlusher quản lý bộ đệm Micro-Batching (Mục đích: Tiết kiệm syscall I/O và tối ưu nén Zstd sang Kafka)
 type BatchFlusher struct {
 	cfg          BatchConfig
 	producer     Producer
@@ -31,9 +31,9 @@ type BatchFlusher struct {
 	stopOnce     sync.Once                 // Guard đảm bảo channel chỉ close đúng 1 lần (Thread-safe)
 }
 
-// NewBatchFlusher khởi tạo BatchFlusher với các mặc định siêu nhỏ (Super Lightweight Micro-Batching)
+// NewBatchFlusher khởi tạo BatchFlusher với cấu hình mặc định cân bằng (500ms Flush Interval)
 func NewBatchFlusher(cfg BatchConfig, producer Producer) *BatchFlusher {
-	// Micro-batch siêu nhỏ: 20 tin nhắn (đảm bảo latency cực thấp, batch lớn dành cho Rust Engine)
+	// Micro-batch 20 tin nhắn (đảm bảo latency thấp, nhường batch lớn cho Rust Engine)
 	if cfg.MaxBatchSize <= 0 {
 		cfg.MaxBatchSize = 20
 	}
@@ -41,9 +41,9 @@ func NewBatchFlusher(cfg BatchConfig, producer Producer) *BatchFlusher {
 	if cfg.MaxBatchBytes <= 0 {
 		cfg.MaxBatchBytes = 16384
 	}
-	// Tần số Flush cực nhanh 5ms
+	// Tần số Flush 500ms cân bằng giữa CPU overhead và latency
 	if cfg.FlushInterval <= 0 {
-		cfg.FlushInterval = 5 * time.Millisecond
+		cfg.FlushInterval = 500 * time.Millisecond
 	}
 
 	return &BatchFlusher{
@@ -57,14 +57,14 @@ func NewBatchFlusher(cfg BatchConfig, producer Producer) *BatchFlusher {
 	}
 }
 
-// StartTimer kích hoạt vòng lặp Flush nhịp định kỳ 5ms siêu ngắn
+// StartTimer kích hoạt vòng lặp Flush nhịp định kỳ 500ms
 func (b *BatchFlusher) StartTimer(ctx context.Context) {
 	b.timerTicker = time.NewTicker(b.cfg.FlushInterval)
 	go func() {
 		for {
 			select {
 			case <-b.timerTicker.C:
-				// Flush nhịp siêu ngắn 5ms để đẩy dữ liệu ngay lập tức
+				// Flush nhịp định kỳ 500ms nếu bộ đệm có dữ liệu chưa gửi
 				_ = b.FlushAll(ctx)
 			case <-b.stopTickerCh:
 				return
