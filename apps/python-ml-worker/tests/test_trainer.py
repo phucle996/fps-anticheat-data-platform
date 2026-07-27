@@ -1,9 +1,22 @@
+import os
 import pytest
 import pandas as pd
 from src.config import Config
 from src.storage import StorageClient
 from src.trainer import ModelTrainer, FEATURE_CONTRACT
 from src.onnx_exporter import ONNXExporter
+
+@pytest.fixture(autouse=True)
+def setup_env():
+    """Thiết lập các biến môi trường bắt buộc phục vụ kiểm thử (Fail-Close Enforced)"""
+    os.environ["KAFKA_BROKERS"] = "localhost:9092"
+    os.environ["KAFKA_TOPIC_GOLD"] = "pubg.v1.dataset.gold.ready"
+    os.environ["KAFKA_TOPIC_MODEL"] = "pubg.v1.ml.model.ready"
+    os.environ["MINIO_ENDPOINT"] = "http://localhost:9000"
+    os.environ["MINIO_BUCKET_DATA"] = "fps-anticheat-datalake"
+    os.environ["MINIO_BUCKET_MODEL"] = "pubg-models"
+    os.environ["MINIO_ACCESS_KEY"] = "minioadmin"
+    os.environ["MINIO_SECRET_KEY"] = "minioadmin"
 
 def test_trainer_pipeline():
     """Kiểm thử pipeline huấn luyện ML và đánh giá các chỉ số"""
@@ -49,3 +62,9 @@ def test_onnx_export_bundle():
     # Kiểm tra kích thước file không rỗng
     assert len(bundle["model.onnx"]) > 0
     assert len(bundle["feature_schema.json"]) > 0
+
+def test_config_fail_close():
+    """Kiểm thử cơ chế Fail-Close: Ném ra ValueError khi thiếu biến môi trường"""
+    del os.environ["KAFKA_BROKERS"]
+    with pytest.raises(ValueError, match="FAIL-CLOSE TRIGGERED"):
+        Config.from_env()

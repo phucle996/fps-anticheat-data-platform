@@ -1,6 +1,13 @@
 import os
 from dataclasses import dataclass
 
+def _get_required_env(key: str) -> str:
+    """Helper bắt buộc biến môi trường phải tồn tại (Fail-Close 100%, Zero Fallback)"""
+    val = os.getenv(key)
+    if not val:
+        raise ValueError(f"[FAIL-CLOSE TRIGGERED] Thiếu biến môi trường bắt buộc '{key}'!")
+    return val
+
 @dataclass
 class Config:
     """Config lưu trữ các biến môi trường cấu hình cho Python ML Worker với nguyên tắc Fail-Close 100%"""
@@ -15,23 +22,14 @@ class Config:
 
     @classmethod
     def from_env(cls) -> "Config":
-        """Nạp biến môi trường với cơ chế Fail-Close bắt buộc các biến quan trọng phải tồn tại"""
-        kafka_brokers = os.getenv("KAFKA_BROKERS", "localhost:9092")
-        kafka_topic_gold = os.getenv("KAFKA_TOPIC_GOLD", "pubg.v1.dataset.gold.ready")
-        kafka_topic_model = os.getenv("KAFKA_TOPIC_MODEL", "pubg.v1.ml.model.ready")
-        minio_endpoint = os.getenv("MINIO_ENDPOINT", "http://localhost:9000")
-        minio_bucket_data = os.getenv("MINIO_BUCKET_DATA", "fps-anticheat-datalake")
-        minio_bucket_model = os.getenv("MINIO_BUCKET_MODEL", "pubg-models")
-        minio_access_key = os.getenv("MINIO_ACCESS_KEY", "minioadmin")
-        minio_secret_key = os.getenv("MINIO_SECRET_KEY", "minioadmin")
-
+        """Nạp biến môi trường với cơ chế Fail-Close 100% (Không chấp nhận fallback giá trị mặc định)"""
         return cls(
-            kafka_brokers=kafka_brokers,
-            kafka_topic_gold=kafka_topic_gold,
-            kafka_topic_model=kafka_topic_model,
-            minio_endpoint=minio_endpoint,
-            minio_bucket_data=minio_bucket_data,
-            minio_bucket_model=minio_bucket_model,
-            minio_access_key=minio_access_key,
-            minio_secret_key=minio_secret_key,
+            kafka_brokers=_get_required_env("KAFKA_BROKERS"),
+            kafka_topic_gold=_get_required_env("KAFKA_TOPIC_GOLD"),
+            kafka_topic_model=_get_required_env("KAFKA_TOPIC_MODEL"),
+            minio_endpoint=_get_required_env("MINIO_ENDPOINT"),
+            minio_bucket_data=_get_required_env("MINIO_BUCKET_DATA"),
+            minio_bucket_model=_get_required_env("MINIO_BUCKET_MODEL"),
+            minio_access_key=_get_required_env("MINIO_ACCESS_KEY"),
+            minio_secret_key=_get_required_env("MINIO_SECRET_KEY"),
         )
