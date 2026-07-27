@@ -1,12 +1,14 @@
 import json
 import hashlib
+import boto3
 import numpy as np
 from datetime import datetime, timezone
 from typing import Dict, Any, Tuple
 from src.trainer import FEATURE_CONTRACT
+from src.config import Config
 
 class ONNXExporter:
-    """ONNXExporter đóng gói chuyển đổi mô hình ML sang định dạng ONNX và xuất Bundle Manifest"""
+    """ONNXExporter đóng gói chuyển đổi mô hình ML sang định dạng ONNX, xuất Bundle Manifest và upload MinIO S3 Model Bucket"""
 
     @staticmethod
     def export_bundle(model: Any, metrics: Dict[str, Any], version: str = "v1") -> Dict[str, bytes]:
@@ -72,6 +74,31 @@ class ONNXExporter:
             "training_manifest.json": manifest_bytes,
             "checksums.sha256": checksum_bytes,
         }
+
+    @staticmethod
+    def upload_bundle_to_minio(bundle: Dict[str, bytes], config: Config, version: str = "v1") -> bool:
+        """Upload toàn bộ Model Bundle (model.onnx, manifests) lên MinIO S3 bucket pubg-models đảm bảo tính bền vững khi restart"""
+        try:
+            print(f"[MINIO UPLOAD] Đang đẩy ONNX Model Bundle '{version}' lên S3 Bucket '{config.minio_bucket_model}'...")
+            s3 = boto3.client(
+                "s3",
+                endpoint_url=config.minio_endpoint,
+                aws_access_key_id=config.minio_access_key,
+                aws_secret_access_key=config.minio_secret_key,
+            )
+            for file_name, content_bytes in bundle.items():
+                s3_key = f"{version}/{file_name}"
+                s3.put_object(
+                    Bucket=config.minio_bucket_model,
+                    Key=s3_key,
+                    Body=content_bytes
+                )
+                print(f"  └─ Uploaded s3://{config.minio_bucket_model}/{s3_key}")
+            print(f"[MINIO UPLOAD SUCCESS] Đã lưu trữ model.onnx thành công lên MinIO S3!")
+            return True
+        except Exception as err:
+            print(f"[WARN] Upload MinIO S3 thất bại ({err}) - Đã bỏ qua cho môi trường dev local")
+            return False
 
     @staticmethod
     def _convert_to_onnx(model: Any) -> bytes:

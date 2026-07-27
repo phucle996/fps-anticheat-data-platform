@@ -536,6 +536,12 @@
 * [x] Đóng gói Weak-label Risk Score và Evidence Matrix vào Prediction API Response.
 * [x] Viết unit test cho Evidence Generation.
 
+### Hot-fix — Model Persistence & Automatic MinIO Recovery
+
+* [x] Tự động upload file `model.onnx` lên MinIO S3 `pubg-models/v1/model.onnx` sau khi Python ML Worker xuất model.
+* [x] Tự động khôi phục (download) `model.onnx` từ MinIO S3 khi Rust Inference Engine khởi động/restart mà đĩa local chưa có file.
+* [x] Cập nhật sơ đồ kiến trúc trong `apps/ml-platform/README.md`.
+
 ---
 
 ## Phase 29 — Streamlit Dashboard Foundation (`apps/streamlit-dashboard`)

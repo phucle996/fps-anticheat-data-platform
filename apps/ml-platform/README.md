@@ -8,7 +8,7 @@ Thư mục **`apps/ml-platform/`** chứa hệ sinh thái 3 dịch vụ vi mô (
 
 ```text
 +-----------------------------------------------------------------------------------------+
-|                              ML PLATFORM ARCHITECTURE OVERVIEW                          |
+|                ML PLATFORM ARCHITECTURE OVERVIEW (MINIO PERSISTENCE)                    |
 +-----------------------------------------------------------------------------------------+
 
    +--------------------------+                         +--------------------------+
@@ -20,15 +20,23 @@ Thư mục **`apps/ml-platform/`** chứa hệ sinh thái 3 dịch vụ vi mô (
                                                                      |  [ Latency < 0.1ms ]
                                                                      v
    +--------------------------+                         +--------------------------+
-   | Shared Local Storage     | <--- [ Load ONNX ] ---- |   Rust Inference Engine  |
+   | Shared Local Cache       | <--- [ Load ONNX ] ---- |   Rust Inference Engine  |
    |   (models/v1/model.onnx) |                         +--------------------------+
-   +--------------------------+                                      ^
-                 ^                                                   |
-                 | (Export ONNX)                                     | (UDS Hot-Swap Signal)
-                 |                                                   |
-   +-----------------------------------------------------------------+
-   |                 Python ML Training Worker Engine                |
-   +-----------------------------------------------------------------+
+   +--------------------------+                                 ^        ^
+                 ^                                              |        | (Self-Recovery Download
+                 | (Export Local)    +--------------------------+        |  when local missing)
+                 |                   | (UDS Hot-Swap Signal)             |
+   +-----------------------------------------------------------------+   |
+   |                 Python ML Training Worker Engine                |   |
+   +-----------------------------------------------------------------+   |
+                 |                                                       |
+                 +---------- [ Upload S3 pubg-models ] ------------------+
+                                     │
+                                     ▼
+                     +-------------------------------+
+                     |  MinIO S3 Model Bucket        |
+                     |  (s3://pubg-models/v1/...)   |
+                     +-------------------------------+
 ```
 
 ---
