@@ -1,23 +1,24 @@
 package logging
 
 import (
-	"log/slog"
 	"os"
+
+	"github.com/sirupsen/logrus"
 )
 
-// InitLogger khởi tạo logger chuẩn hóa định dạng JSON theo tiêu chuẩn Cloud-Native
-func InitLogger(serviceName string) *slog.Logger {
-	// Sử dụng JSONHandler để log có cấu trúc dễ truyền vào ELK / Grafana Loki
-	handler := slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
-		Level: slog.LevelInfo, // Mức log mặc định là INFO
+// InitLogger khởi tạo Logrus Logger chuẩn hóa định dạng JSON theo tiêu chuẩn Cloud-Native
+func InitLogger(serviceName string) *logrus.Entry {
+	// 1. Cấu hình log định dạng JSONFormatter để truyền vào ELK / Grafana Loki
+	logrus.SetFormatter(&logrus.JSONFormatter{
+		TimestampFormat: "2006-01-02T15:04:05Z07:00", // Chuẩn ISO-8601 UTC timestamp
 	})
 
-	// Gắn sẵn thuộc tính cố định service vào mọi log entry
-	logger := slog.New(handler).With(
-		slog.String("service", serviceName),
-	)
+	// 2. Xuất log ra tiêu chuẩn Standard Output (os.Stdout)
+	logrus.SetOutput(os.Stdout)
 
-	// Đặt logger mặc định cho ứng dụng
-	slog.SetDefault(logger)
-	return logger
+	// 3. Thiết lập mức độ log mặc định là InfoLevel
+	logrus.SetLevel(logrus.InfoLevel)
+
+	// 4. Trả về Entry được đính kèm thuộc tính service cố định
+	return logrus.WithField("service", serviceName)
 }

@@ -1,6 +1,6 @@
 # ==========================================
 # Dockerfile — Go Ingestor (dataset-sync)
-# PUBG Anti-Cheat Data Platform
+# PUBG Anti-Cheat Data Platform (Production Hardened)
 # ==========================================
 
 # ------------------------------------------
@@ -21,20 +21,17 @@ RUN go mod download
 # Copy toàn bộ mã nguồn Go vào container
 COPY . .
 
-# Biên dịch binary tĩnh (CGO_ENABLED=0) tối ưu cho container nhỏ nhẹ
+# Biên dịch binary tĩnh (CGO_ENABLED=0) tối ưu cho Distroless
 RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-w -s" -o /app/bin/dataset-sync ./cmd/dataset-sync
 
 # ------------------------------------------
-# Stage 2: Runtime Stage (Minimal Alpine Base)
+# Stage 2: Runtime Stage (Google Distroless Static Debian12)
 # ------------------------------------------
-FROM alpine:3.19
+# Sử dụng Google Distroless siêu bảo mật, không có shell/bash, không có utilities dư thừa
+FROM gcr.io/distroless/static-debian12:nonroot
 
-# Cài đặt SSL Certificates cho kết nối HTTPS Kaggle & MinIO
-RUN apk add --no-cache ca-certificates tzdata
-
-# Thêm user không có quyền root (non-root user) để bảo mật
-RUN adduser -D -u 10001 appuser
-USER appuser
+# Chạy dưới tài khoản không có quyền root (nonroot UID 65532)
+USER 65532:65532
 
 # Thư mục làm việc của runtime
 WORKDIR /app

@@ -79,9 +79,14 @@
 * [x] Tạo dataset manifest.
 * [x] Lưu manifest vào MinIO S3 (`pubg-data/manifests/dataset-manifest.json`).
 * [x] Bỏ qua download nếu dataset đã sẵn sàng trên MinIO.
-* [x] Thêm option force download.
 * [x] Thêm structured JSON logging.
 * [x] Dockerize `dataset-sync`.
+
+### Pháe
+* [ ] Refactor `main.go` thành thuần Entrypoint (Log init, Graceful shutdown handling).
+* [ ] Tạo `internal/app/dataset_sync.go` điều phối Use Case ứng dụng.
+* [ ] Chuyển Dockerfile runtime sang Google Distroless (`gcr.io/distroless/static-debian12`).
+* [ ] Cập nhật Go version trong `go.mod`.
 
 ---
 

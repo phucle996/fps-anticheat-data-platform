@@ -2,7 +2,10 @@ module pubg-anti-cheat/go-ingestor
 
 go 1.22
 
-require github.com/minio/minio-go/v7 v7.0.70
+require (
+	github.com/minio/minio-go/v7 v7.0.70
+	github.com/sirupsen/logrus v1.9.4
+)
 
 require (
 	github.com/dustin/go-humanize v1.0.1 // indirect
@@ -11,7 +14,6 @@ require (
 	github.com/klauspost/compress v1.17.6 // indirect
 	github.com/klauspost/cpuid/v2 v2.2.6 // indirect
 	github.com/minio/md5-simd v1.1.2 // indirect
-	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/rs/xid v1.5.0 // indirect
 	golang.org/x/crypto v0.21.0 // indirect
 	golang.org/x/net v0.23.0 // indirect

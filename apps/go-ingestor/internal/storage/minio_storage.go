@@ -5,8 +5,8 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"log/slog"
 
+	"github.com/sirupsen/logrus"
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
 )
@@ -44,7 +44,7 @@ func (m *MinIOClient) EnsureBucketExists(ctx context.Context) error {
 		return fmt.Errorf("lỗi kiểm tra bucket tồn tại: %w", err)
 	}
 	if !exists {
-		slog.Info("Bucket chưa tồn tại, đang tiến hành tạo mới", "bucket", m.bucket)
+		logrus.WithField("bucket", m.bucket).Info("Bucket chưa tồn tại, đang tiến hành tạo mới")
 		err = m.client.MakeBucket(ctx, m.bucket, minio.MakeBucketOptions{})
 		if err != nil {
 			return fmt.Errorf("không thể tạo bucket: %w", err)
