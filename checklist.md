@@ -500,7 +500,7 @@
 * [ ] Khởi tạo module Rust ML/AI Inference (`apps/ml-platform/rust-inference`).
 * [ ] Tích hợp ONNX Runtime C-bindings (`ort` crate) vào `rust-inference`.
 * [ ] Nhận tín hiệu IPC trực tiếp từ Python ML Worker khi model mới sẵn sàng (Zero Kafka overhead nội bộ).
-* [ ] Tải và verify checksum ONNX Model Bundle từ MinIO S3 hoặc shared IPC directory.
+* [ ] Đọc trực tiếp và verify checksum ONNX Model Bundle từ local shared directory (`models/v1/`).
 * [ ] Atomic Hot-Swap mô hình ONNX trong RAM (Zero Downtime).
 * [ ] Chạy Tensor Inference trực tiếp cho tập dữ liệu Gold features.
 * [ ] Viết unit test cho Rust ONNX Engine trong `apps/ml-platform/rust-inference`.
