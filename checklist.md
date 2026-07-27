@@ -204,20 +204,20 @@
 
 ## Phase 10 — Go Replay Checkpoint (MinIO S3 Store)
 
-* [ ] Tạo checkpoint structure.
-* [ ] Tạo checkpoint store interface.
-* [ ] Tạo MinIO S3 checkpoint store (`pubg-data/checkpoints/go-replay/state.json`).
-* [ ] Lưu dataset ID.
-* [ ] Lưu source file.
-* [ ] Lưu last completed record index.
-* [ ] Lưu updated timestamp.
-* [ ] Load checkpoint từ MinIO khi replay bắt đầu.
-* [ ] Resume đọc CSV từ checkpoint record index.
-* [ ] Chỉ lưu checkpoint sau Kafka acknowledgement.
-* [ ] Thêm option disable checkpoint.
-* [ ] Thêm option reset checkpoint trên MinIO.
-* [ ] Viết unit test cho MinIO checkpoint store.
-* [ ] Kiểm tra replay resume từ MinIO.
+* [x] Tạo checkpoint structure.
+* [x] Tạo checkpoint store interface.
+* [x] Tạo MinIO S3 checkpoint store (`pubg-data/checkpoints/go-replay/state.json`).
+* [x] Lưu dataset ID.
+* [x] Lưu source file.
+* [x] Lưu last completed record index.
+* [x] Lưu updated timestamp.
+* [x] Load checkpoint từ MinIO khi replay bắt đầu.
+* [x] Resume đọc CSV từ checkpoint record index.
+* [x] Chỉ lưu checkpoint sau Kafka acknowledgement.
+* [x] Thêm option disable checkpoint.
+* [x] Thêm option reset checkpoint trên MinIO.
+* [x] Viết unit test cho MinIO checkpoint store.
+* [x] Kiểm tra replay resume từ MinIO.
 
 ---
 

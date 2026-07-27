@@ -13,21 +13,23 @@ import (
 )
 
 func main() {
-	// 1. Định nghĩa CLI Flags điều khiển replay
+	// 1. Định nghĩa CLI Flags điều khiển replay và checkpointing
 	limitFlag := flag.Int64("limit", 0, "Số bản ghi tối đa cần replay (0 = không giới hạn)")
 	startFlag := flag.Int64("start", 1, "Chỉ số bản ghi bắt đầu replay (1-indexed)")
 	dryRunFlag := flag.Bool("dry-run", true, "Chế độ chạy thử không đẩy tin nhắn vào Kafka")
+	disableCpFlag := flag.Bool("disable-checkpoint", false, "Tắt tính năng nạp/lưu Checkpoint trên MinIO S3")
+	resetCpFlag := flag.Bool("reset-checkpoint", false, "Xóa trạng thái Checkpoint cũ trên MinIO S3 trước khi bắt đầu")
 	flag.Parse()
 
 	// 2. Khởi tạo Logrus JSON Logger cho dịch vụ
 	log := logging.InitLogger("go-replay")
-	log.Info("Khởi động tiến trình replay entrypoint...")
+	log.Info("Khởi động tiến trình replay entrypoint (Checkpoint Ready)...")
 
 	// 3. Bắt tín hiệu Hủy / Graceful Shutdown từ OS (SIGINT, SIGTERM)
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	// 4. Nạp cấu hình ứng dụng từ Environment Variables
+	// 4. Nạp cấu hình ứng dụng từ Environment Variables (Fail-Close)
 	cfg, err := config.LoadFromEnv()
 	if err != nil {
 		log.WithError(err).Fatal("Nạp cấu hình ứng dụng thất bại")
@@ -39,11 +41,13 @@ func main() {
 		log.WithError(err).Fatal("Khởi tạo ứng dụng ReplayService thất bại")
 	}
 
-	// 6. Cấu hình các tham số Replay
+	// 6. Cấu hình các tham số Replay và Checkpoint
 	replayConfig := service.ReplayerConfig{
-		Limit:       *limitFlag,
-		StartRecord: *startFlag,
-		DryRun:      *dryRunFlag,
+		Limit:             *limitFlag,
+		StartRecord:       *startFlag,
+		DryRun:            *dryRunFlag,
+		DisableCheckpoint: *disableCpFlag,
+		ResetCheckpoint:   *resetCpFlag,
 	}
 
 	// 7. Thực thi Use Case Replay Dataset

@@ -13,12 +13,14 @@ import (
 	"pubg-anti-cheat/go-ingestor/internal/config"
 )
 
-// ReplayerConfig định nghĩa thông số điều khiển replay
+// ReplayerConfig định nghĩa thông số điều khiển replay và checkpointing
 type ReplayerConfig struct {
-	Limit         int64       // Số lượng bản ghi tối đa cần replay (0 = không giới hạn)
-	StartRecord   int64       // Chỉ số bản ghi bắt đầu replay (1 = dòng đầu tiên)
-	DryRun        bool        // Cờ chạy thử không phát Kafka
-	MicroBatching BatchConfig // Cấu hình Micro-Batching Flusher
+	Limit             int64       // Số lượng bản ghi tối đa cần replay (0 = không giới hạn)
+	StartRecord       int64       // Chỉ số bản ghi bắt đầu replay (1 = dòng đầu tiên)
+	DryRun            bool        // Cờ chạy thử không phát Kafka
+	DisableCheckpoint bool        // Cờ tắt tính năng đọc/ghi Checkpoint
+	ResetCheckpoint   bool        // Cờ xóa trạng thái Checkpoint cũ trên MinIO S3
+	MicroBatching     BatchConfig // Cấu hình Micro-Batching Flusher
 }
 
 // ReplayStatistics theo dõi bộ đếm thống kê thời gian thực của replay loop
@@ -30,48 +32,79 @@ type ReplayStatistics struct {
 	Duration        time.Duration `json:"duration"`
 }
 
-// Replayer Engine vòng lặp Replay tích hợp Micro-Batching Flusher
+// Replayer Engine vòng lặp Replay tích hợp Micro-Batching Flusher & MinIO Checkpoint Store
 type Replayer struct {
-	cfg        ReplayerConfig
-	parser     Parser
-	normalizer Normalizer
-	producer   Producer      // Kafka Producer (Fail-Close)
-	flusher    *BatchFlusher // Bộ đệm Micro-Batching
-	log        *logrus.Entry
-	stats      ReplayStatistics
+	cfg             ReplayerConfig
+	parser          Parser
+	normalizer      Normalizer
+	producer        Producer        // Kafka Producer (Fail-Close)
+	checkpointStore CheckpointStore // MinIO S3 Checkpoint Store
+	flusher         *BatchFlusher   // Bộ đệm Micro-Batching
+	datasetID       string          // ID dataset đang replay
+	sourceFile      string          // Tên file CSV nguồn
+	log             *logrus.Entry
+	stats           ReplayStatistics
 }
 
-// NewReplayer khởi tạo Replayer với BatchFlusher
-func NewReplayer(cfg ReplayerConfig, p Parser, n Normalizer, producer Producer, log *logrus.Entry) *Replayer {
+// NewReplayer khởi tạo Replayer với CheckpointStore
+func NewReplayer(cfg ReplayerConfig, p Parser, n Normalizer, producer Producer, cpStore CheckpointStore, datasetID, sourceFile string, log *logrus.Entry) *Replayer {
 	flusher := NewBatchFlusher(cfg.MicroBatching, producer)
 	return &Replayer{
-		cfg:        cfg,
-		parser:     p,
-		normalizer: n,
-		producer:   producer,
-		flusher:    flusher,
-		log:        log,
-		stats:      ReplayStatistics{},
+		cfg:             cfg,
+		parser:          p,
+		normalizer:      n,
+		producer:        producer,
+		checkpointStore: cpStore,
+		flusher:         flusher,
+		datasetID:       datasetID,
+		sourceFile:      sourceFile,
+		log:             log,
+		stats:           ReplayStatistics{},
 	}
 }
 
-// Run thực thi vòng lặp Replay Loop kết hợp Micro-Batching Flusher và Fail-Close
+// Run thực thi vòng lặp Replay Loop với cơ chế Resume từ Checkpoint và Fail-Close
 func (r *Replayer) Run(ctx context.Context) (*ReplayStatistics, error) {
 	startTime := time.Now()
+
+	// 1. Xử lý tùy chọn Reset Checkpoint trên MinIO S3 nếu được yêu cầu
+	if r.cfg.ResetCheckpoint && r.checkpointStore != nil {
+		r.log.Info("Thực hiện Reset Checkpoint trạng thái cũ trên MinIO S3...")
+		if err := r.checkpointStore.Reset(ctx); err != nil {
+			r.log.WithError(err).Warn("Lỗi khi Reset Checkpoint trên MinIO S3")
+		}
+	}
+
+	// 2. Tự động nạp Checkpoint từ MinIO S3 và Resume vị trí đọc nếu không bị Disable
+	if !r.cfg.DisableCheckpoint && r.checkpointStore != nil && r.cfg.StartRecord <= 1 {
+		cpState, err := r.checkpointStore.Load(ctx)
+		if err != nil {
+			r.log.WithError(err).Warn("Không thể nạp Checkpoint từ MinIO S3, chạy từ bản ghi mặc định")
+		} else if cpState != nil && cpState.LastCompletedRecordIndex > 0 {
+			// Resume từ chỉ số kế tiếp
+			r.cfg.StartRecord = cpState.LastCompletedRecordIndex + 1
+			r.log.WithFields(logrus.Fields{
+				"last_completed": cpState.LastCompletedRecordIndex,
+				"resume_start":   r.cfg.StartRecord,
+			}).Info("Đã khôi phục thành công điểm dừng Replay (Resume) từ MinIO S3 Checkpoint!")
+		}
+	}
+
 	r.log.WithFields(logrus.Fields{
 		"start_record": r.cfg.StartRecord,
 		"limit":        r.cfg.Limit,
 		"dry_run":      r.cfg.DryRun,
 		"batch_size":   r.cfg.MicroBatching.MaxBatchSize,
-	}).Info("Bắt đầu vòng lặp Replay Loop (Micro-Batching Active)...")
+	}).Info("Bắt đầu vòng lặp Replay Loop (Checkpointing Active)...")
 
 	// Kích hoạt Timer Flush nhịp định kỳ theo thời gian
 	r.flusher.StartTimer(ctx)
 	defer r.flusher.StopTimer()
 
-	// Defer FlushAll khi kết thúc (EOF hoặc Shutdown)
+	// Defer FlushAll và Lưu Checkpoint khi kết thúc (EOF hoặc Shutdown)
 	defer func() {
 		_ = r.flusher.FlushAll(context.Background())
+		r.saveCheckpoint(context.Background())
 		r.stats.Duration = time.Since(startTime)
 		r.log.WithFields(logrus.Fields{
 			"records_read":     r.stats.RecordsRead,
@@ -104,6 +137,7 @@ func (r *Replayer) Run(ctx context.Context) (*ReplayStatistics, error) {
 			return &r.stats, fmt.Errorf("lỗi parser read: %w", err)
 		}
 
+		// Bỏ qua các bản ghi trước vị trí StartRecord (được nạp từ Checkpoint hoặc CLI flag)
 		if r.cfg.StartRecord > 1 && rawRecord.RecordIndex < r.cfg.StartRecord {
 			continue
 		}
@@ -115,7 +149,6 @@ func (r *Replayer) Run(ctx context.Context) (*ReplayStatistics, error) {
 			return &r.stats, normErr
 		}
 
-		// Xử lý bản ghi bị vi phạm Validation (Invalid Record)
 		if invalidRecord != nil {
 			r.stats.InvalidRecords++
 			flushedCount, err := r.flusher.AddInvalid(ctx, invalidRecord)
@@ -126,31 +159,58 @@ func (r *Replayer) Run(ctx context.Context) (*ReplayStatistics, error) {
 			continue
 		}
 
-		// Xử lý bản ghi hợp lệ (Valid Event Envelope)
 		if envelope != nil {
 			r.stats.ValidRecords++
 
-			// Thêm bản ghi vào Micro-Batching Flusher
 			flushedCount, err := r.flusher.AddEvent(ctx, envelope)
 			if err != nil {
 				return &r.stats, fmt.Errorf("fail-close trong batch raw flush: %w", err)
 			}
 
-			// Chỉ cập nhật bộ đếm ProducedRecords khi Delivery thành công
 			if r.cfg.DryRun {
 				r.stats.ProducedRecords++
 			} else {
 				r.stats.ProducedRecords += flushedCount
+				// Cập nhật và lưu Checkpoint lên MinIO S3 sau mỗi đợt phát Kafka thành công
+				if flushedCount > 0 {
+					r.saveCheckpoint(ctx)
+				}
 			}
 		}
 	}
 
-	// Flush toàn bộ dữ liệu dư thừa còn lại trong bộ đệm khi kết thúc vòng lặp (EOF Flush)
 	if err := r.flusher.FlushAll(ctx); err != nil {
 		return &r.stats, fmt.Errorf("fail-close trong EOF flush final: %w", err)
 	}
+	r.saveCheckpoint(ctx)
 
 	return &r.stats, nil
+}
+
+// saveCheckpoint lưu trạng thái record_index mới nhất lên MinIO S3
+func (r *Replayer) saveCheckpoint(ctx context.Context) {
+	if r.cfg.DisableCheckpoint || r.checkpointStore == nil || r.stats.RecordsRead == 0 {
+		return
+	}
+
+	// Chỉ số bản ghi hoàn thành mới nhất = StartRecord + RecordsRead - 1
+	lastIndex := r.cfg.StartRecord + r.stats.RecordsRead - 1
+	if r.cfg.StartRecord <= 1 {
+		lastIndex = r.stats.RecordsRead
+	}
+
+	state := &CheckpointState{
+		DatasetID:                r.datasetID,
+		SourceFile:               r.sourceFile,
+		LastCompletedRecordIndex: lastIndex,
+		UpdatedAt:                time.Now().UTC(),
+	}
+
+	if err := r.checkpointStore.Save(ctx, state); err != nil {
+		r.log.WithError(err).Warn("Không thể cập nhật Checkpoint state lên MinIO S3")
+	} else {
+		r.log.WithField("last_completed", lastIndex).Debug("Đã lưu Checkpoint thành công lên MinIO S3")
+	}
 }
 
 // ReplayService điều phối usecase Replay Dataset từ MinIO S3 phát vào Kafka
@@ -180,9 +240,9 @@ func NewReplayService(cfg *config.Config, log *logrus.Entry) (*ReplayService, er
 	}, nil
 }
 
-// Run thực thi Replay Service với Micro-Batching
+// Run thực thi Replay Service với MinIO S3 Checkpoint Store
 func (s *ReplayService) Run(ctx context.Context, replayCfg ReplayerConfig) (*ReplayStatistics, error) {
-	s.log.Info("Khởi động Use Case Replay Dataset (Micro-Batching Integrated)...")
+	s.log.Info("Khởi động Use Case Replay Dataset (MinIO S3 Checkpoint Integrated)...")
 
 	var kafkaProducer Producer
 	if !replayCfg.DryRun {
@@ -220,7 +280,10 @@ func (s *ReplayService) Run(ctx context.Context, replayCfg ReplayerConfig) (*Rep
 
 	normalizer := NewPlayerStatNormalizer(manifest.DatasetID)
 
-	replayerEngine := NewReplayer(replayCfg, csvParser, normalizer, kafkaProducer, s.log)
+	// Khởi tạo MinIOCheckpointStore trên pubg-data/checkpoints/go-replay/state.json
+	cpStore := NewMinIOCheckpointStore(s.minioCli, "checkpoints/go-replay/state.json")
+
+	replayerEngine := NewReplayer(replayCfg, csvParser, normalizer, kafkaProducer, cpStore, manifest.DatasetID, manifest.SelectedFile, s.log)
 	stats, err := replayerEngine.Run(ctx)
 	if err != nil && !strings.Contains(err.Error(), "context canceled") {
 		return stats, fmt.Errorf("lỗi trong vòng lặp Replay Loop (Fail-Close Triggered): %w", err)
