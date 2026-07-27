@@ -1,0 +1,37 @@
+[package]
+name = "rust-processor"
+version = "0.1.0"
+edition = "2021"
+authors = ["DeepMind Agentic Anticheat Team"]
+description = "PUBG Anti-Cheat High-Throughput Rust Stream Processor Engine"
+
+[dependencies]
+# Tokio Multi-threaded Async Runtime cho xử lý song song throughput cao
+tokio = { version = "1.38", features = ["full"] }
+
+# Rdkafka Client Bindings cho Kafka Cluster
+rdkafka = "0.36"
+
+# Serde mã hóa và giải mã JSON
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# Ghìm phiên bản chrono tương thích hoàn hảo với Apache Arrow 51/52
+chrono = "=0.4.38"
+
+# Apache Arrow In-Memory Columnar Data Format cho Anticheat Analytics
+arrow = "52.0"
+
+# Apache Parquet Columnar Storage File Writer
+parquet = "52.0"
+
+# Object Store SDK thao tác lưu trữ MinIO S3
+object_store = { version = "0.10", features = ["aws"] }
+
+# Structured JSON Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["json", "env-filter"] }
+
+# Quản lý lỗi định dạng chuẩn hóa
+thiserror = "1.0"
+anyhow = "1.0"

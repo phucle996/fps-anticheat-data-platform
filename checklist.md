@@ -231,19 +231,19 @@
 
 ## Phase 11 — Rust Project Foundation
 
-* [ ] Khởi tạo Rust project.
-* [ ] Tạo module structure.
-* [ ] Tạo config loader.
-* [ ] Tạo structured logging.
-* [ ] Định nghĩa event envelope struct.
-* [ ] Định nghĩa batch metadata.
-* [ ] Định nghĩa application errors.
-* [ ] Thêm Kafka client dependency.
-* [ ] Thêm Arrow dependency.
-* [ ] Thêm Parquet dependency.
-* [ ] Thêm S3/MinIO client dependency.
-* [ ] Tạo Dockerfile.
-* [ ] Thêm Rust Processor vào Docker Compose.
+* [x] Khởi tạo Rust project.
+* [x] Tạo module structure.
+* [x] Tạo config loader.
+* [x] Tạo structured logging.
+* [x] Định nghĩa event envelope struct.
+* [x] Định nghĩa batch metadata.
+* [x] Định nghĩa application errors.
+* [x] Thêm Kafka client dependency.
+* [x] Thêm Arrow dependency.
+* [x] Thêm Parquet dependency.
+* [x] Thêm S3/MinIO client dependency.
+* [x] Tạo Dockerfile.
+* [x] Thêm Rust Processor vào Docker Compose.
 
 ---
 

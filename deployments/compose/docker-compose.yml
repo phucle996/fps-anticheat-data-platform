@@ -108,6 +108,38 @@ services:
     networks:
       - pubg-platform-net
 
+  # ------------------------------------------
+  # 5. Rust Stream Processor Application
+  # ------------------------------------------
+  rust-processor:
+    build:
+      context: ../../apps/rust-processor
+      dockerfile: Dockerfile
+    container_name: pubg-rust-processor
+    restart: unless-stopped
+    depends_on:
+      kafka:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      init-kafka:
+        condition: service_completed_successfully
+      init-minio:
+        condition: service_completed_successfully
+    environment:
+      - KAFKA_BROKERS=kafka:9092
+      - KAFKA_RAW_TOPIC=pubg.v1.player-stat.raw
+      - KAFKA_GROUP_ID=rust-processor-group
+      - MINIO_ENDPOINT=http://minio:9000
+      - MINIO_ACCESS_KEY=minioadmin
+      - MINIO_SECRET_KEY=minioadmin
+      - MINIO_BUCKET=pubg-data
+      - RUST_BATCH_SIZE=1000
+      - RUST_FLUSH_INTERVAL_MS=1000
+      - RUST_LOG=info
+    networks:
+      - pubg-platform-net
+
 # ------------------------------------------
 # Docker Networks & Volumes Definition
 # ------------------------------------------
