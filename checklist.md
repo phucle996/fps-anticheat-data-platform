@@ -510,12 +510,11 @@
 
 ## Phase 26 — Rust Unix Domain Socket IPC Server (`apps/ml-platform/rust-inference/src/ipc/`)
 
-* [ ] Thiết lập Unix Domain Socket Listener (`/tmp/rust_inference.sock`) trong `rust-inference`.
-* [ ] Xử lý giao thức IPC Request/Response JSON siêu tốc với Go API Gateway.
-* [ ] Chuẩn hóa Anomaly Risk Score (0.0 - 1.0) và gán nhãn Risk Level.
-* [ ] Ghi kết quả Predictions Parquet lên MinIO `s3://pubg-predictions/`.
-* [ ] Publish Kafka event `pubg.v1.ml.inference.completed`.
-* [ ] Viết unit test cho Rust UDS IPC Server.
+* [x] Thiết lập Unix Domain Socket Listener (`/tmp/rust_inference.sock`) trong `rust-inference`.
+* [x] Xử lý giao thức IPC Request/Response JSON siêu tốc với Go API Gateway (Thuần IPC 100%).
+* [x] Chuẩn hóa Anomaly Risk Score (0.0 - 1.0) và gán nhãn Risk Level.
+* [x] Ghi kết quả Predictions Parquet lên MinIO `s3://pubg-predictions/`.
+* [x] Viết unit test cho Rust UDS IPC Server.
 
 ---
 
