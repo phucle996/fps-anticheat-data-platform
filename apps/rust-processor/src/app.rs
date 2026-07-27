@@ -3,19 +3,19 @@ use crate::error::Result;
 use crate::ingest::{BatchAccumulator, BatchAccumulatorConfig, CompletedBatch, KafkaConsumer};
 use crate::storage::{BatchManifest, MinioWriter, PartitionOffsetMetadata};
 use crate::transform::{ArrowConverter, EventDeduplicator, EventValidator, ParquetSerializer};
-use crate::worker::RWorkerSpawner;
+use crate::worker::RDynamicWorkerPool;
 use chrono::Utc;
 use std::collections::HashMap;
 use std::time::Duration;
 use tracing::{info, warn};
 
-/// StreamProcessorApp đóng gói toàn bộ quy trình Ingest -> Validate -> Dedup -> Arrow -> Parquet -> MinIO -> Offset Commit -> R Worker Spawn
+/// StreamProcessorApp đóng gói toàn bộ quy trình Ingest -> Validate -> Dedup -> Arrow -> Parquet -> MinIO -> Offset Commit -> Dynamic R Pool
 pub struct StreamProcessorApp {
-    config: Config,               // Cấu hình ứng dụng
-    consumer: KafkaConsumer,      // Bộ đọc tin nhắn Kafka
-    accumulator: BatchAccumulator,// Bộ gom batch dữ liệu RAM
-    writer: MinioWriter,          // Bộ ghi dữ liệu MinIO S3
-    r_spawner: RWorkerSpawner,    // Bộ kích hoạt R Subprocess Async Worker
+    config: Config,                // Cấu hình ứng dụng
+    consumer: KafkaConsumer,       // Bộ đọc tin nhắn Kafka
+    accumulator: BatchAccumulator, // Bộ gom batch dữ liệu RAM
+    writer: MinioWriter,           // Bộ ghi dữ liệu MinIO S3
+    r_pool: RDynamicWorkerPool,    // Dynamic R Worker Pool Daemon
 }
 
 impl StreamProcessorApp {
@@ -23,7 +23,7 @@ impl StreamProcessorApp {
     pub fn new(config: Config) -> Result<Self> {
         let consumer = KafkaConsumer::new(&config)?;
         let writer = MinioWriter::new(&config)?;
-        let r_spawner = RWorkerSpawner::new(4); // Giới hạn tối đa 4 R Workers chạy song song
+        let r_pool = RDynamicWorkerPool::new(config.r_max_workers);
 
         let accum_config = BatchAccumulatorConfig {
             max_records: config.batch_size,
@@ -32,14 +32,17 @@ impl StreamProcessorApp {
         };
         let accumulator = BatchAccumulator::new(accum_config);
 
-        info!("Khởi tạo StreamProcessorApp engine (RWorkerSpawner Active) thành công");
+        info!(
+            max_r_workers = config.r_max_workers,
+            "Khởi tạo StreamProcessorApp engine (Dynamic R Pool Active) thành công"
+        );
 
         Ok(Self {
             config,
             consumer,
             accumulator,
             writer,
-            r_spawner,
+            r_pool,
         })
     }
 
@@ -84,7 +87,7 @@ impl StreamProcessorApp {
         Ok(())
     }
 
-    /// Process_completed_batch xử lý 1 CompletedBatch theo đúng quy trình Durable Two-Phase Commit & Async R Worker
+    /// Process_completed_batch xử lý 1 CompletedBatch theo đúng quy trình Durable Two-Phase Commit & Dynamic R Worker Pool
     pub async fn process_completed_batch(&self, completed_batch: CompletedBatch) -> Result<()> {
         // 1. Data Quality Validation
         let val_outcome = EventValidator::validate_batch(completed_batch.events);
@@ -141,8 +144,8 @@ impl StreamProcessorApp {
                     "Hoàn tất quy trình Durable Two-Phase Commit cho Processing Batch!"
                 );
 
-                // 8. Kích hoạt Rscript Async Subprocess Worker (Non-blocking)
-                self.r_spawner.spawn_worker(manifest_path);
+                // 8. Kích hoạt Spark-Style Dynamic R Worker Pool (Non-blocking Task Dispatch)
+                self.r_pool.dispatch_manifest(manifest_path);
             }
         }
 

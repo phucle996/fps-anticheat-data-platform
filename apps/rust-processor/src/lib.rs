@@ -17,4 +17,4 @@ pub use transform::{
     ArrowConverter, DeduplicateOutcome, EventDeduplicator, EventValidator, InvalidEnvelopeRecord, ParquetSerializer,
     ValidationOutcome,
 };
-pub use worker::RWorkerSpawner;
+pub use worker::{RDynamicWorkerPool, RWorkerSpawner};

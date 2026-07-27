@@ -427,6 +427,11 @@
 * [x] Tạo data-quality summary.
 * [x] Viết test cho preprocessing.
 
+### phase 21 fix bổ sung 
+* [x] Thiết lập Spark-style Dynamic R Worker Pool Daemon (Persistent process IPC/stdin loop).
+* [x] Tích hợp bộ Ticker & Idle Timer (5s timeout auto-shutdown cho R worker khi nhàn rỗi).
+* [x] Tối ưu hóa tái sử dụng R process (Warm process reuse, 0ms startup latency khi stream dữ liệu liên tục).
+
 ---
 
 ## Phase 22 — R Feature Engineering và Gold

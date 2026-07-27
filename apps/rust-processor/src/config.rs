@@ -14,6 +14,7 @@ pub struct Config {
     pub minio_secret_key: String,   // Secret Key của MinIO S3
     pub batch_size: usize,          // Ngưỡng số lượng bản ghi cho mỗi batch (vd: 1000)
     pub flush_interval_ms: u64,     // Ngưỡng thời gian flush batch theo ms (vd: 1000)
+    pub r_max_workers: usize,       // Số lượng R Worker song song tối đa (phát hiện từ CPU Cores hoặc R_MAX_WORKERS)
 }
 
 impl Config {
@@ -37,6 +38,16 @@ impl Config {
             .and_then(|v| v.parse().ok())
             .unwrap_or(1000);
 
+        // Tự động phát hiện số CPU logical cores của hệ thống nếu không khai báo R_MAX_WORKERS
+        let default_cpus = std::thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(4);
+
+        let r_max_workers = env::var("R_MAX_WORKERS")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(default_cpus);
+
         Ok(Self {
             kafka_brokers,
             kafka_raw_topic,
@@ -47,6 +58,7 @@ impl Config {
             minio_secret_key,
             batch_size,
             flush_interval_ms,
+            r_max_workers,
         })
     }
 
