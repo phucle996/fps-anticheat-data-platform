@@ -60,28 +60,28 @@
 
 ---
 
-## Phase 4 — Go Dataset Sync
+## Phase 4 — Go Dataset Sync (MinIO S3 Integration)
 
-* [ ] Khởi tạo Go module.
-* [ ] Tạo command `dataset-sync`.
-* [ ] Tạo config loader.
-* [ ] Tạo config validation.
-* [ ] Đọc Kaggle credentials.
-* [ ] Tạo Kaggle client.
-* [ ] Tải dataset archive.
-* [ ] Lưu archive vào `data/archives`.
-* [ ] Ghi file download tạm thời.
-* [ ] Xác nhận download hoàn thành.
-* [ ] Tính SHA-256 checksum.
-* [ ] Giải nén archive.
-* [ ] Lưu dữ liệu vào `data/extracted`.
-* [ ] Kiểm tra selected CSV file tồn tại.
-* [ ] Tạo dataset manifest.
-* [ ] Lưu manifest vào `data/manifests`.
-* [ ] Bỏ qua download nếu dataset đã sẵn sàng.
-* [ ] Thêm option force download.
-* [ ] Thêm structured JSON logging.
-* [ ] Dockerize `dataset-sync`.
+* [x] Khởi tạo Go module.
+* [x] Tạo command `dataset-sync`.
+* [x] Tạo config loader.
+* [x] Tạo config validation.
+* [x] Đọc Kaggle credentials.
+* [x] Tạo Kaggle client.
+* [x] Tải dataset archive.
+* [x] Lưu archive vào MinIO S3 (`pubg-data/archives/`).
+* [x] Ghi file download tạm thời.
+* [x] Xác nhận download hoàn thành.
+* [x] Tính SHA-256 checksum.
+* [x] Giải nén archive.
+* [x] Lưu dữ liệu vào MinIO S3 (`pubg-data/raw-sources/`).
+* [x] Kiểm tra selected CSV file tồn tại.
+* [x] Tạo dataset manifest.
+* [x] Lưu manifest vào MinIO S3 (`pubg-data/manifests/dataset-manifest.json`).
+* [x] Bỏ qua download nếu dataset đã sẵn sàng trên MinIO.
+* [x] Thêm option force download.
+* [x] Thêm structured JSON logging.
+* [x] Dockerize `dataset-sync`.
 
 ---
 
