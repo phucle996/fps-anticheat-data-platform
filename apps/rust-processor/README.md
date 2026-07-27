@@ -101,59 +101,78 @@
 Hệ thống kết hợp cơ chế **Unbounded Task-Driven Worker Allocation** (`src/worker/dynamic_pool.rs`) cùng **Resource-Driven Hysteresis Circuit Breaker** (`src/worker/circuit_breaker.rs`) đọc tài nguyên real-time từ Linux `/proc/stat` & `/proc/meminfo`:
 
 ```text
-+-----------------------------------------------------------------------------------------+
-|        UNBOUNDED DYNAMIC WORKER ALLOCATION & HYSTERESIS CIRCUIT BREAKER FLOW           |
-+-----------------------------------------------------------------------------------------+
++---------------------------------------------------------------------------------------------------------+
+|                  UNBOUNDED DYNAMIC WORKER ALLOCATION & HYSTERESIS CIRCUIT BREAKER FLOW                  |
++---------------------------------------------------------------------------------------------------------+
 
-              Batch Manifest Signals / Task Dispatch Requests
-                                         |
-                                         v
-              Real-Time OS Resource Metrics (/proc/stat & /proc/meminfo)
-                                         |
-                                         v
-                      +--------------------------------------+
-                      |      ResourceCircuitBreaker          |
-                      +--------------------------------------+
-                                  |              |
-    (CPU >= 80.0% HOẶC RAM >= 85.0%) |              | (Chỉ khi CPU <= 75.0% VÀ RAM <= 80.0%)
-         HIGH WATERMARK TRIPPED   |              |   HYSTERESIS GAP RECOVERED
-                                  v              v
-                      +------------------+    +------------------+
-                      |   State: OPEN    |    |  State: CLOSED   |
-                      |  (Tạm ngắt spawn |    |  (Cho phép spawn |
-                      |   R Worker mới)  |    |   R Worker mới)  |
-                      +------------------+    +------------------+
-                                                 |
-                                                 v
-                      +--------------------------------------+
-                      |        RDynamicWorkerPool            |
-                      |    (Unbounded Task-Driven)           |
-                      +--------------------------------------+
-                                         |
-           +-----------------------------+-----------------------------+
-           |                             |                             |
-           v                             v                             v
-+-----------------------+     +-----------------------+     +-----------------------+
-|  Async R Worker 1     |     |  Async R Worker 2     |     |  Async R Worker N...  |
-| (Spawned on Demand)   |     | (Spawned on Demand)   |     | (Unbounded Scaling)   |
-+-----------------------+     +-----------------------+     +-----------------------+
-           |                             |                             |
-           +-----------------------------+-----------------------------+
-                                         | (Subprocess execution complete)
-                                         v
-                      +--------------------------------------+
-                      | Auto Resource Reclamation & Free RAM |
-                      +--------------------------------------+
+                              Kafka Consumer Raw Stream (pubg.v1.player-stat.raw)
+                                                     |
+                                                     v
+                         +-------------------------------------------------------+
+                         | Ingest Accumulator (3 Parallel Batch Triggers)        |
+                         |   ├── 1. Record Count Trigger (len >= BATCH_SIZE)     |
+                         |   ├── 2. Byte Size Trigger (bytes >= MAX_BATCH_BYTES) |
+                         |   └── 3. Time-based Flush Trigger (elapsed >= 1000ms) |
+                         +-------------------------------------------------------+
+                                                     |
+                                                     v (Tạo Bronze Parquet + Manifest JSON)
+                       Real-Time OS Resource Metrics (/proc/stat & /proc/meminfo)
+                                                     |
+                                                     v
+                                  +------------------------------------+
+                                  |     ResourceCircuitBreaker         |
+                                  +------------------------------------+
+                                              |            |
+                (CPU >= 80.0% HOẶC RAM >= 85.0%) |            | (CPU <= 75.0% VÀ RAM <= 80.0%)
+                     HIGH WATERMARK TRIPPED   |            |   HYSTERESIS GAP RECOVERED
+                                              v            v
+                                  +---------------+    +---------------+
+                                  |  State: OPEN  |    | State: CLOSED |
+                                  | (Tạm dừng     |    | (Cho phép     |
+                                  |  spawn R Task)|    |  dispatch task|
+                                  +---------------+    +---------------+
+                                                              |
+                                                              v
+                                  +------------------------------------+
+                                  |        RDynamicWorkerPool          |
+                                  |    (Unbounded Task Dispatcher)     |
+                                  +------------------------------------+
+                                             |
+                   +-------------------------+-------------------------+
+                   |                         |                         |
+                   v                         v                         v
+       +-----------------------+ +-----------------------+ +-----------------------+
+       | Async R Worker Task 1 | | Async R Worker Task 2 | | Async R Worker Task N |
+       | (tokio::spawn Task)   | | (tokio::spawn Task)   | | (Unbounded Scaling)   |
+       +-----------------------+ +-----------------------+ +-----------------------+
+                   |                         |                         |
+                   v                         v                         v
+       +---------------------------------------------------------------------------+
+       | Executing Subprocess: Rscript run_batch.R --manifest <manifest_path.json> |
+       | (Chạy độc lập 1 OS Process cách ly hoàn toàn với luồng chính Ingestor)    |
+       +---------------------------------------------------------------------------+
+                                             |
+                                             | (Phân tích Silver/Gold hoàn tất -> Subprocess Exit 0)
+                                             v
+       +---------------------------------------------------------------------------+
+       | OS Kernel Auto Memory Reclamation (Thu hồi 100% RAM, Zero Memory Leak)    |
+       +---------------------------------------------------------------------------+
 ```
 
 ### 🧠 Giải Thích Chi Tiết Cơ Chế Hoạt Động Hợp Nhất:
 
-1. **Unbounded Task-Driven Worker Spawning (`src/worker/dynamic_pool.rs`)**:
-   - Mỗi khi có Batch Manifest task mới phát sinh, pool sẽ tự động khởi tạo (spawn) 1 worker bất đồng bộ song song để thực thi ngay tức thì mà không khống chế số lượng cố định.
-   - Ngay khi subprocess hoàn tất công việc, tài nguyên RAM & CPU core được hệ điều hành tự động thu hồi.
-2. **Resource-Driven Circuit Breaker (`src/worker/circuit_breaker.rs`)**:
-   - **High Watermark (Tripped to `OPEN`)**: Khi **CPU $\ge$ 80.0%** hoặc **RAM $\ge$ 85.0%**, Circuit Breaker ngắt việc spawn worker mới để bảo vệ luồng nạp dữ liệu thô (Ingestion Pipeline) không bị sụp đổ.
-   - **Low Watermark & Hysteresis Gap (Recovered to `CLOSED`)**: Chỉ phục hồi về `CLOSED` cho phép spawn worker trở lại khi **CPU $\le$ 75.0%** VÀ **RAM $\le$ 80.0%** nhằm triệt tiêu hiện tượng Flapping dao động tài nguyên.
+1. **Gom Batch Qua 3 Ngưỡng Kích Hoạt Song Song (`Ingest Accumulator`)**:
+   - `Record Count`: Ngay khi đệm đủ `BATCH_SIZE` (1,000 bản ghi).
+   - `Byte Size`: Khi tổng dung lượng byte chạm `MAX_BATCH_BYTES` (5 MB).
+   - `Time-based Flush`: Mỗi khoảng `FLUSH_INTERVAL_MS` (1,000ms timer) tự động xả đệm đọng.
+2. **Unbounded Task-Driven Worker Spawning (`src/worker/dynamic_pool.rs`)**:
+   - Khi batch hình thành và xuất Parquet + Manifest JSON lên MinIO S3 thành công, `RDynamicWorkerPool` tự động tạo (`tokio::spawn`) 1 worker bất đồng bộ song song kích hoạt tiến trình `Rscript`.
+   - Tiến trình `Rscript` chạy cách ly hoàn toàn dưới dạng OS Subprocess độc lập.
+3. **OS Subprocess Exit & 100% RAM Reclamation**:
+   - Ngay khi `run_batch.R` xử lý xong, tiến trình `Rscript` thoát (`Exit 0`). Kernel Linux lập tức **thu hồi 100% bộ nhớ RAM** đã cấp cho tiến trình đó, đảm bảo Zero Memory Leak tuyệt đối.
+4. **Resource-Driven Circuit Breaker (`src/worker/circuit_breaker.rs`)**:
+   - **High Watermark (Tripped to `OPEN`)**: Khi CPU $\ge$ 80% hoặc RAM $\ge$ 85%, hệ thống chuyển sang `OPEN` tạm ngắt spawn worker mới để bảo vệ luồng nạp dữ liệu thô.
+   - **Low Watermark & Hysteresis Gap (Recovered to `CLOSED`)**: Chỉ phục hồi về `CLOSED` cho phép spawn worker khi CPU $\le$ 75% VÀ RAM $\le$ 80% để tránh Flapping.
 
 ---
 
