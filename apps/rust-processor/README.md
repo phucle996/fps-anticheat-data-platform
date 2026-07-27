@@ -96,21 +96,38 @@
 
 ---
 
-## 🔄 Dynamic Worker Allocation Pool (`src/worker/dynamic_pool.rs`)
+## 🔄 Dynamic Unbounded Worker Allocation & Resource Circuit Breaker
 
-Cơ chế **Dynamic Worker Allocation Pool** KHÔNG áp đặt bất kỳ giới hạn cứng số lượng worker nào (Unbounded Task-Driven Spawning). Mỗi nhiệm vụ Batch Manifest mới sinh ra đều được tự động tạo (spawn) worker bất đồng bộ song song để xử lý ngay tức thì:
+Hệ thống kết hợp cơ chế **Unbounded Task-Driven Worker Allocation** (`src/worker/dynamic_pool.rs`) cùng **Resource-Driven Hysteresis Circuit Breaker** (`src/worker/circuit_breaker.rs`) đọc tài nguyên real-time từ Linux `/proc/stat` & `/proc/meminfo`:
 
 ```text
 +-----------------------------------------------------------------------------------------+
-|                  UNBOUNDED DYNAMIC WORKER ALLOCATION FLOW                               |
+|        UNBOUNDED DYNAMIC WORKER ALLOCATION & HYSTERESIS CIRCUIT BREAKER FLOW           |
 +-----------------------------------------------------------------------------------------+
 
-              Batch Manifest Signals / Dynamic Task Dispatch Stream
+              Batch Manifest Signals / Task Dispatch Requests
+                                         |
+                                         v
+              Real-Time OS Resource Metrics (/proc/stat & /proc/meminfo)
                                          |
                                          v
                       +--------------------------------------+
+                      |      ResourceCircuitBreaker          |
+                      +--------------------------------------+
+                                  |              |
+    (CPU >= 80.0% HOẶC RAM >= 85.0%) |              | (Chỉ khi CPU <= 75.0% VÀ RAM <= 80.0%)
+         HIGH WATERMARK TRIPPED   |              |   HYSTERESIS GAP RECOVERED
+                                  v              v
+                      +------------------+    +------------------+
+                      |   State: OPEN    |    |  State: CLOSED   |
+                      |  (Tạm ngắt spawn |    |  (Cho phép spawn |
+                      |   R Worker mới)  |    |   R Worker mới)  |
+                      +------------------+    +------------------+
+                                                 |
+                                                 v
+                      +--------------------------------------+
                       |        RDynamicWorkerPool            |
-                      |    (Pure Task-Driven Dispatcher)     |
+                      |    (Unbounded Task-Driven)           |
                       +--------------------------------------+
                                          |
            +-----------------------------+-----------------------------+
@@ -129,48 +146,14 @@ Cơ chế **Dynamic Worker Allocation Pool** KHÔNG áp đặt bất kỳ giới
                       +--------------------------------------+
 ```
 
-### 🧠 Giải Thích Chi Tiết Unbounded Dynamic Worker Allocation:
-- **Không Giới Hạn Worker Cố Định (Unbounded Task-Driven Spawning)**:
-  - Hệ thống không khống chế số lượng worker cố định mà khởi tạo (spawn) ngẫu nhiên theo số lượng Batch Manifest phát sinh thực tế.
-- **Tự Động Thu Hồi Tài Nguyên (Auto Reclamation)**:
-  - Ngay khi subprocess hoàn tất công việc, tài nguyên RAM & CPU core lập tức được hệ điều hành tự động thu hồi mà không để lại worker nhàn rỗi.
+### 🧠 Giải Thích Chi Tiết Cơ Chế Hoạt Động Hợp Nhất:
 
----
-
-## 🛡️ Resource-Driven Hysteresis Circuit Breaker (`src/worker/circuit_breaker.rs`)
-
-Thay vì giới hạn số lượng worker thủ công, hệ thống sử dụng **Resource-Driven Circuit Breaker** ngắt mạch bảo vệ hạ tầng dựa trên việc đo lường trực tiếp tài nguyên Linux OS real-time từ `/proc/stat` & `/proc/meminfo`:
-
-```text
-+-----------------------------------------------------------------------------------------+
-|             RESOURCE-DRIVEN HYSTERESIS CIRCUIT BREAKER & WATERMARKS                     |
-+-----------------------------------------------------------------------------------------+
-
-              Real-Time OS Resource Metrics (/proc/stat & /proc/meminfo)
-                                         |
-                                         v
-                      +--------------------------------------+
-                      |      ResourceCircuitBreaker          |
-                      +--------------------------------------+
-                                  |              |
-    (CPU >= 80.0% HOẶC RAM >= 85.0%) |              | (Chỉ khi CPU <= 75.0% VÀ RAM <= 80.0%)
-         HIGH WATERMARK TRIPPED   |              |   HYSTERESIS GAP RECOVERED
-                                  v              v
-                      +------------------+    +------------------+
-                      |   State: OPEN    |    |  State: CLOSED   |
-                      |  (Tạm ngắt spawn |    |  (Cho phép dispatch|
-                      |   R Worker mới)  |    |   task R Worker) |
-                      +------------------+    +------------------+
-```
-
-### 🧠 Giải Thích Chi Tiết Cơ Chế Hysteresis Gap & Watermarks:
-1. **Pure Resource-Driven Monitoring (`/proc/stat` & `/proc/meminfo`)**:
-   - Engine đọc trực tiếp chỉ số CPU usage % và RAM usage % từ Linux kernel `procfs` real-time trước khi dispatch bất kỳ công việc nào.
-2. **High Watermark (Tripped to `OPEN`)**:
-   - Khi **CPU $\ge$ 80.0%** hoặc **RAM $\ge$ 85.0%**, Circuit Breaker ngay lập tức chuyển sang trạng thái `OPEN`.
-   - Ngắt việc khởi tạo (spawn) thêm R Workers mới để bảo vệ luồng nạp dữ liệu thô (Ingestion Pipeline) không bị crash do sụp đĩa hoặc đứt kết nối.
-3. **Low Watermark & Hysteresis Gap (Recovered to `CLOSED`)**:
-   - Để tránh hiện tượng "đóng/mở liên tục" (Flapping) khi tài nguyên dao động quanh ngưỡng trần, hệ thống áp dụng **Hysteresis Gap**: Circuit Breaker chỉ phục hồi về trạng thái `CLOSED` khi **CPU giảm xuống $\le$ 75.0%** VÀ **RAM giảm xuống $\le$ 80.0%**.
+1. **Unbounded Task-Driven Worker Spawning (`src/worker/dynamic_pool.rs`)**:
+   - Mỗi khi có Batch Manifest task mới phát sinh, pool sẽ tự động khởi tạo (spawn) 1 worker bất đồng bộ song song để thực thi ngay tức thì mà không khống chế số lượng cố định.
+   - Ngay khi subprocess hoàn tất công việc, tài nguyên RAM & CPU core được hệ điều hành tự động thu hồi.
+2. **Resource-Driven Circuit Breaker (`src/worker/circuit_breaker.rs`)**:
+   - **High Watermark (Tripped to `OPEN`)**: Khi **CPU $\ge$ 80.0%** hoặc **RAM $\ge$ 85.0%**, Circuit Breaker ngắt việc spawn worker mới để bảo vệ luồng nạp dữ liệu thô (Ingestion Pipeline) không bị sụp đổ.
+   - **Low Watermark & Hysteresis Gap (Recovered to `CLOSED`)**: Chỉ phục hồi về `CLOSED` cho phép spawn worker trở lại khi **CPU $\le$ 75.0%** VÀ **RAM $\le$ 80.0%** nhằm triệt tiêu hiện tượng Flapping dao động tài nguyên.
 
 ---
 
