@@ -1,0 +1,72 @@
+# ==========================================
+# Git Ignore Configuration - FPS Anti-Cheat Data Platform
+# ==========================================
+
+# Direct Dataset Archives & Extracted CSV files (Kaggle Data)
+# Không commit dữ liệu tĩnh dung lượng lớn vào Git repository
+data/archives/*
+!data/archives/.gitkeep
+data/extracted/*
+!data/extracted/.gitkeep
+data/checkpoints/*
+!data/checkpoints/.gitkeep
+
+# Environment variables & Secret credentials
+# Bảo vệ Kaggle API Key, S3 Secret Key và SSL Certificates
+.env
+.env.local
+.env.development
+.env.production
+*.pem
+kaggle.json
+
+# Go Build Artifacts & Binaries
+# Bỏ qua các file executable và file binary tạm của Go
+bin/
+*.exe
+*.exe?
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+go.work
+
+# Rust Build Artifacts & Cargo Cache
+# Bỏ qua thư mục build target của Rust
+target/
+**/*.rs.bk
+Cargo.lock
+
+# R & Shiny Workspace / Cache
+# Bỏ qua workspace cache, history và thư mục thư viện của R renv
+.Rhistory
+.RData
+.Ruserdata
+.Rproj.user/
+renv/library/
+renv/python/
+renv/staging/
+
+# IDE & System Temporary Files
+# Bỏ qua file rác của hệ điều hành và trình soạn thảo
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+*.swp
+*.swo
+*~
+.idea/
+.vscode/
+.gemini/
+
+# Application Logs & Temporary Output
+# Bỏ qua file log và thư mục temporary runtime
+*.log
+logs/
+tmp/
+scratch/
