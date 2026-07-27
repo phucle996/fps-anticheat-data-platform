@@ -2,19 +2,19 @@
 
 ## Phase 1 — Khởi tạo project
 
-* [ ] Tạo monorepo.
-* [ ] Tạo cấu trúc thư mục `apps`.
-* [ ] Tạo cấu trúc `contracts`.
-* [ ] Tạo cấu trúc `configs`.
-* [ ] Tạo cấu trúc `data`.
-* [ ] Tạo cấu trúc `deployments`.
-* [ ] Tạo cấu trúc `scripts`.
-* [ ] Tạo cấu trúc `tests`.
-* [ ] Tạo `.gitignore`.
-* [ ] Tạo `.env.example`.
-* [ ] Tạo `Makefile`.
-* [ ] Viết README cơ bản.
-* [ ] Khởi tạo Git repository.
+* [x] Tạo monorepo.
+* [x] Tạo cấu trúc thư mục `apps`.
+* [x] Tạo cấu trúc `contracts`.
+* [x] Tạo cấu trúc `configs`.
+* [x] Tạo cấu trúc `data`.
+* [x] Tạo cấu trúc `deployments`.
+* [x] Tạo cấu trúc `scripts`.
+* [x] Tạo cấu trúc `tests`.
+* [x] Tạo `.gitignore`.
+* [x] Tạo `.env.example`.
+* [x] Tạo `Makefile`.
+* [x] Viết README cơ bản`.
+* [x] Khởi tạo Git repository.
 
 ---
 
