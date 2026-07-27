@@ -40,23 +40,23 @@
 
 ## Phase 3 — Data Contract
 
-* [ ] Chọn Kaggle PUBG dataset.
-* [ ] Xác định dataset slug.
-* [ ] Xác định file CSV chính.
-* [ ] Liệt kê các columns.
-* [ ] Chọn columns sử dụng trong MVP.
-* [ ] Tạo data dictionary.
-* [ ] Định nghĩa event envelope.
-* [ ] Định nghĩa source metadata.
-* [ ] Định nghĩa `schema_version`.
-* [ ] Định nghĩa các giá trị `op`.
-* [ ] Định nghĩa cách tạo `event_id`.
-* [ ] Tạo JSON Schema cho event.
-* [ ] Tạo schema cho dataset manifest.
-* [ ] Tạo schema cho batch manifest.
-* [ ] Tạo schema cho prediction.
-* [ ] Tạo valid event example.
-* [ ] Tạo invalid event example.
+* [x] Chọn Kaggle PUBG dataset.
+* [x] Xác định dataset slug.
+* [x] Xác định file CSV chính.
+* [x] Liệt kê các columns.
+* [x] Chọn columns sử dụng trong MVP.
+* [x] Tạo data dictionary.
+* [x] Định nghĩa event envelope.
+* [x] Định nghĩa source metadata.
+* [x] Định nghĩa `schema_version`.
+* [x] Định nghĩa các giá trị `op`.
+* [x] Định nghĩa cách tạo `event_id`.
+* [x] Tạo JSON Schema cho event.
+* [x] Tạo schema cho dataset manifest.
+* [x] Tạo schema cho batch manifest.
+* [x] Tạo schema cho prediction.
+* [x] Tạo valid event example.
+* [x] Tạo invalid event example.
 
 ---
 

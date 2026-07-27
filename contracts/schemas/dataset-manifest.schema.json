@@ -1,0 +1,30 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://pubg-anticheat.org/schemas/dataset-manifest.json",
+  "title": "DatasetManifest",
+  "description": "Schema định nghĩa thông tin manifest của dataset Kaggle sau khi được Go Sync tải về",
+  "type": "object",
+  "required": [
+    "dataset_id",
+    "provider",
+    "slug",
+    "archive_path",
+    "archive_checksum",
+    "extracted_path",
+    "selected_file",
+    "status",
+    "created_at"
+  ],
+  "properties": {
+    "dataset_id": { "type": "string" },
+    "provider": { "type": "string", "enum": ["kaggle", "local"] },
+    "slug": { "type": "string" },
+    "archive_path": { "type": "string" },
+    "archive_checksum": { "type": "string" },
+    "extracted_path": { "type": "string" },
+    "selected_file": { "type": "string" },
+    "total_records": { "type": "integer", "minimum": 0 },
+    "status": { "type": "string", "enum": ["ready", "syncing", "failed"] },
+    "created_at": { "type": "string", "format": "date-time" }
+  }
+}

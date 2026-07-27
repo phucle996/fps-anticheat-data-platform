@@ -1,0 +1,31 @@
+{
+  "prediction_id": "pred-20260728-1029-98234",
+  "player_id": "player-1029",
+  "match_id": "match-98234",
+  "risk_score": 0.892,
+  "risk_level": "HIGH",
+  "model_name": "pubg-isolation-forest-anomaly-detector",
+  "model_version": "v1.0.0",
+  "feature_version": "v1",
+  "scored_at": "2026-07-28T01:30:00Z",
+  "evidence": [
+    {
+      "feature": "headshot_ratio",
+      "value": 0.75,
+      "reference_value": 0.18,
+      "contribution": "high"
+    },
+    {
+      "feature": "kills_per_minute",
+      "value": 0.654,
+      "reference_value": 0.08,
+      "contribution": "high"
+    },
+    {
+      "feature": "damage_per_kill",
+      "value": 120.875,
+      "reference_value": 250.0,
+      "contribution": "medium"
+    }
+  ]
+}

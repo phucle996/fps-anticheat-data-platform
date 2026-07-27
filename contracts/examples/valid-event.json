@@ -1,0 +1,25 @@
+{
+  "schema_version": "1.0",
+  "event_id": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "op": "data.player_stat.match_summary",
+  "event_time": null,
+  "ingest_time": "2026-07-28T01:10:00Z",
+  "match_id": "match-98234",
+  "player_id": "player-1029",
+  "source": {
+    "provider": "kaggle",
+    "dataset_id": "daniboy370/pubg-finish-placement-prediction",
+    "source_file": "train_V2.csv",
+    "record_index": 1420
+  },
+  "payload": {
+    "kills": 12,
+    "damage_dealt": 1450.5,
+    "headshot_kills": 9,
+    "walk_distance": 3200.1,
+    "ride_distance": 0.0,
+    "swim_distance": 0.0,
+    "survival_duration": 1100.0,
+    "win_place_perc": 0.95
+  }
+}

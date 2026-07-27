@@ -1,0 +1,43 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://pubg-anticheat.org/schemas/prediction.json",
+  "title": "Prediction",
+  "description": "Schema định nghĩa cấu trúc kết quả đánh giá rủi ro gian lận và bằng chứng (Evidence) từ R",
+  "type": "object",
+  "required": [
+    "prediction_id",
+    "player_id",
+    "match_id",
+    "risk_score",
+    "risk_level",
+    "model_name",
+    "model_version",
+    "feature_version",
+    "scored_at",
+    "evidence"
+  ],
+  "properties": {
+    "prediction_id": { "type": "string" },
+    "player_id": { "type": "string" },
+    "match_id": { "type": "string" },
+    "risk_score": { "type": "number", "minimum": 0.0, "maximum": 1.0 },
+    "risk_level": { "type": "string", "enum": ["LOW", "MEDIUM", "HIGH", "CRITICAL"] },
+    "model_name": { "type": "string" },
+    "model_version": { "type": "string" },
+    "feature_version": { "type": "string" },
+    "scored_at": { "type": "string", "format": "date-time" },
+    "evidence": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["feature", "value", "reference_value", "contribution"],
+        "properties": {
+          "feature": { "type": "string" },
+          "value": { "type": "number" },
+          "reference_value": { "type": "number" },
+          "contribution": { "type": "string", "enum": ["low", "medium", "high"] }
+        }
+      }
+    }
+  }
+}

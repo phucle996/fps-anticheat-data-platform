@@ -1,0 +1,86 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://pubg-anticheat.org/schemas/event-envelope.json",
+  "title": "EventEnvelope",
+  "description": "Schema chuẩn định nghĩa cấu trúc Event Envelope đẩy vào Kafka Topic pubg.v1.player-stat.raw",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "event_id",
+    "op",
+    "ingest_time",
+    "match_id",
+    "player_id",
+    "source",
+    "payload"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "description": "Phiên bản schema dữ liệu (ví dụ: '1.0')",
+      "default": "1.0"
+    },
+    "event_id": {
+      "type": "string",
+      "description": "Mã hash SHA-256 duy nhất dùng để khử trùng lặp dữ liệu (deduplication)",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "op": {
+      "type": "string",
+      "description": "Tên thao tác/sự kiện dữ liệu",
+      "enum": ["data.player_stat.match_summary"]
+    },
+    "event_time": {
+      "type": ["string", "null"],
+      "format": "date-time",
+      "description": "Thời gian xảy ra sự kiện trong game (nếu có)"
+    },
+    "ingest_time": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Thời gian hệ thống Go Ingestor nạp bản ghi (ISO 8601 UTC)"
+    },
+    "match_id": {
+      "type": "string",
+      "description": "Mã trận đấu (Dùng làm Kafka Message Key)"
+    },
+    "player_id": {
+      "type": "string",
+      "description": "Mã người chơi"
+    },
+    "source": {
+      "type": "object",
+      "description": "Thông tin nguồn truy xuất dữ liệu",
+      "required": ["provider", "dataset_id", "source_file", "record_index"],
+      "properties": {
+        "provider": { "type": "string" },
+        "dataset_id": { "type": "string" },
+        "source_file": { "type": "string" },
+        "record_index": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "payload": {
+      "type": "object",
+      "description": "Dữ liệu chỉ số thống kê chi tiết của player",
+      "required": [
+        "kills",
+        "damage_dealt",
+        "headshot_kills",
+        "walk_distance",
+        "ride_distance",
+        "swim_distance",
+        "survival_duration"
+      ],
+      "properties": {
+        "kills": { "type": "integer", "minimum": 0 },
+        "damage_dealt": { "type": "number", "minimum": 0.0 },
+        "headshot_kills": { "type": "integer", "minimum": 0 },
+        "walk_distance": { "type": "number", "minimum": 0.0 },
+        "ride_distance": { "type": "number", "minimum": 0.0 },
+        "swim_distance": { "type": "number", "minimum": 0.0 },
+        "survival_duration": { "type": "number", "minimum": 0.0 },
+        "win_place_perc": { "type": ["number", "null"], "minimum": 0.0, "maximum": 1.0 }
+      }
+    }
+  }
+}
