@@ -410,22 +410,22 @@
 
 ## Phase 21 — R Preprocessing và Silver
 
-* [ ] Hỗ trợ nhận tham số `manifest_path` từ Rscript Subprocess CLI.
-* [ ] List Bronze manifests.
-* [ ] Chỉ đọc manifest completed.
-* [ ] Đọc Bronze Parquet.
-* [ ] Kiểm tra schema.
-* [ ] Kiểm tra checksum nếu cần.
-* [ ] Chuẩn hóa column types.
-* [ ] Xử lý missing values.
-* [ ] Loại duplicate toàn cục theo `event_id` giữa các Bronze batches.
-* [ ] Tạo bảng players.
-* [ ] Tạo bảng matches.
-* [ ] Tạo bảng player-match.
-* [ ] Ghi Silver Parquet.
-* [ ] Ghi processing status.
-* [ ] Tạo data-quality summary.
-* [ ] Viết test cho preprocessing.
+* [x] Hỗ trợ nhận tham số `manifest_path` từ Rscript Subprocess CLI.
+* [x] List Bronze manifests.
+* [x] Chỉ đọc manifest completed.
+* [x] Đọc Bronze Parquet.
+* [x] Kiểm tra schema.
+* [x] Kiểm tra checksum nếu cần.
+* [x] Chuẩn hóa column types.
+* [x] Xử lý missing values.
+* [x] Loại duplicate toàn cục theo `event_id` giữa các Bronze batches.
+* [x] Tạo bảng players.
+* [x] Tạo bảng matches.
+* [x] Tạo bảng player-match.
+* [x] Ghi Silver Parquet.
+* [x] Ghi processing status.
+* [x] Tạo data-quality summary.
+* [x] Viết test cho preprocessing.
 
 ---
 

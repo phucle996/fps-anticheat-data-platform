@@ -24,6 +24,8 @@ cat(sprintf("[INFO] Rscript CLI nhận yêu cầu xử lý Manifest: %s\n", mani
 # Nạp các module R cốt lõi
 source("R/config.R")
 source("R/manifest_reader.R")
+source("R/storage.R")
+source("R/silver_preprocessor.R")
 
 tryCatch({
   # 1. Đọc và kiểm tra Manifest JSON
@@ -31,7 +33,11 @@ tryCatch({
   cat(sprintf("[SUCCESS] Đã đọc thành công Batch ID '%s' (Total Records: %d)\n", 
               manifest$batch_id, manifest$total_records_read))
   
-  cat("[INFO] Hoàn tất tiến trình R Analytics Worker cho Batch thành công.\n")
+  # 2. Xử lý tiền xử lý và trích xuất 3 bảng Silver Layer Entities
+  report <- process_silver_entities(manifest_path)
+  
+  cat(sprintf("[SUCCESS] Hoàn tất tiến trình R Preprocessor cho Batch '%s' (Unique: %d, Players: %d, Matches: %d)\n",
+              report$batch_id, report$unique_records, report$players_count, report$matches_count))
   quit(status = 0)
 }, error = function(e) {
   cat(sprintf("[ERROR] Rscript Subprocess thất bại: %s\n", e$message))
