@@ -630,10 +630,10 @@
 ## Phase 36 — Documentation Completion & Docker Container Integration Test Suite
 
 ### Hoàn thiện tài liệu kiến trúc và viết bộ test case kiểm thử tích hợp trên Docker Container
-* [ ] Hoàn thiện tài liệu kiến trúc tổng thể (Architecture Document & Data Dictionary).
-* [ ] Cập nhật toàn bộ các file README và God View SOT documents làm chuẩn tham chiếu.
-* [ ] Viết bộ test case kiểm thử tích hợp tự động trên Docker Container environment.
-* [ ] Viết script kiểm thử xác minh tính sẵn sàng và giao tiếp end-to-end của tất cả các container service.
+* [x] Hoàn thiện tài liệu kiến trúc tổng thể (Architecture Document & Data Dictionary).
+* [x] Cập nhật toàn bộ các file README và God View SOT documents làm chuẩn tham chiếu.
+* [x] Viết bộ test case kiểm thử tích hợp tự động trên Docker Container environment.
+* [x] Viết script kiểm thử xác minh tính sẵn sàng và giao tiếp end-to-end của tất cả các container service.
 
 ---
 
