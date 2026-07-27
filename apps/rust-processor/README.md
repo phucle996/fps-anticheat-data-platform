@@ -100,6 +100,46 @@
 
 Để vận hành bền vững trong môi trường **Cloud-Native & High Availability (HA)**, `apps/rust-processor` tích hợp cơ chế **Dynamic Worker Pool (`src/worker/dynamic_pool.rs`)**:
 
+```text
++-----------------------------------------------------------------------------------------+
+|                  DYNAMIC WORKER ALLOCATION POOL & CIRCUIT BREAKER FLOW                  |
++-----------------------------------------------------------------------------------------+
+
+   Incoming Kafka Events / Ingestion Stream
+                     |
+                     v
+   +---------------------------------------------------+
+   | Channel Queue Buffer (Saturation Monitor)         |
+   +---------------------------------------------------+
+             |                               |
+             | (Buffer < 75%)                | (Buffer > 75% High Backpressure Spike!)
+             v                               v
+   +--------------------+          +-------------------------------------------------+
+   | Min Worker Pool    |          | Dynamic Scale-Up Worker Threads                 |
+   | (2 Active Threads) |          | (Spawn Workers up to max_workers = 8 Threads)   |
+   +--------------------+          +-------------------------------------------------+
+             |                               |
+             +---------------+---------------+
+                             |
+                             v
+   +---------------------------------------------------+
+   | Circuit Breaker Layer                             |
+   | (Monitors MinIO S3 Health & Storage Error Rate)   |
+   +---------------------------------------------------+
+             |                               |
+             | (Success / Error < 5%)        | (Storage Outage / Failures > Threshold)
+             v                               v
+   +--------------------+          +-------------------------------------------------+
+   | State: CLOSED      |          | State: OPEN                                     |
+   | (Normal Parquet    |          | (Pause Ingestion, Buffer in RAM, Prevent Crash) |
+   |  MinIO Upload)     |          +-------------------------------------------------+
+   +--------------------+                            | (Idle Probe Period)
+                                                     v
+                                           +-----------------------------------------+
+                                           | State: HALF-OPEN (Test Recovery Upload) |
+                                           +-----------------------------------------+
+```
+
 ### 1. Cơ Chế Tự Động Co Co/Giãn Thread Pool (Dynamic Allocation)
 - **Scale-Up (Tăng tốc khi có áp lực)**:
   - Khi lưu lượng sự kiện Kafka tăng đột biến (Spike Load) dẫn tới hàng đợi (Channel Buffer) vượt quá 75% ngưỡng chứa, `DynamicWorkerPool` sẽ tự động cấp phát (spawn) thêm worker threads từ `min_workers` lên tới `max_workers` (ví dụ từ 2 -> 8 workers).
