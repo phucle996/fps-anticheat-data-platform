@@ -375,18 +375,18 @@
 
 ## Phase 19 — MinIO Data Lake Structure
 
-* [ ] Tạo `bronze/player-stat`.
-* [ ] Tạo `bronze/invalid`.
-* [ ] Tạo `manifests`.
-* [ ] Tạo `silver/players`.
-* [ ] Tạo `silver/matches`.
-* [ ] Tạo `silver/player-match`.
-* [ ] Tạo `gold/player-match-features`.
-* [ ] Tạo `models`.
-* [ ] Tạo `predictions`.
-* [ ] Chốt object naming convention.
-* [ ] Chốt partitioning convention.
-* [ ] Viết tài liệu data lake layout.
+* [x] Tạo `bronze/player-stat`.
+* [x] Tạo `bronze/invalid`.
+* [x] Tạo `manifests`.
+* [x] Tạo `silver/players`.
+* [x] Tạo `silver/matches`.
+* [x] Tạo `silver/player-match`.
+* [x] Tạo `gold/player-match-features`.
+* [x] Tạo `models`.
+* [x] Tạo `predictions`.
+* [x] Chốt object naming convention.
+* [x] Chốt partitioning convention.
+* [x] Viết tài liệu data lake layout.
 
 ---
 

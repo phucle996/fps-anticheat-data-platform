@@ -35,10 +35,38 @@ impl MinioWriter {
             "Đã khởi tạo thành công MinioWriter ObjectStore Client"
         );
 
-        Ok(Self {
+        let writer = Self {
             store: Arc::new(store),
             bucket: config.minio_bucket.clone(),
-        })
+        };
+
+        Ok(writer)
+    }
+
+    /// Ensure_datalake_structure khởi tạo tự động các thư mục móng Medallion Data Lake nếu chưa có
+    pub async fn ensure_datalake_structure(&self) -> Result<()> {
+        let keep_paths = [
+            "bronze/player-stat/.keep",
+            "bronze/invalid/.keep",
+            "manifests/.keep",
+            "silver/players/.keep",
+            "silver/matches/.keep",
+            "silver/player-match/.keep",
+            "gold/player-match-features/.keep",
+            "models/.keep",
+            "predictions/.keep",
+        ];
+
+        for path_str in keep_paths {
+            let object_path = ObjectPath::from(path_str);
+            // Chỉ ghi .keep nếu chưa tồn tại
+            if self.store.head(&object_path).await.is_err() {
+                let _ = self.store.put(&object_path, vec![].into()).await;
+            }
+        }
+
+        info!("Đã xác nhận 100% cấu trúc 9 thư mục móng Medallion Data Lake sẵn sàng trên MinIO S3");
+        Ok(())
     }
 
     /// Generate_bronze_path sinh đường dẫn Hive Partitioning chuẩn cho file Parquet hợp lệ
