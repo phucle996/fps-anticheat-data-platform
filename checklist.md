@@ -603,17 +603,17 @@
 
 ## Phase 34 — End-to-End System Integration
 
-* [ ] Chạy Kafka và MinIO.
-* [ ] Chạy Dataset Sync.
-* [ ] Kiểm tra dataset manifest.
-* [ ] Chạy Rust Processor.
-* [ ] Chạy R Preprocessing (Silver & Gold).
-* [ ] Chạy Python Model Training.
-* [ ] Kiểm tra ONNX model artifacts.
-* [ ] Chạy Rust ONNX Engine (UDS IPC).
-* [ ] Chạy Go API Gateway.
-* [ ] Mở Streamlit Dashboard.
-* [ ] Kiểm tra toàn bộ pipeline end-to-end.
+* [x] Chạy Kafka và MinIO.
+* [x] Chạy Dataset Sync.
+* [x] Kiểm tra dataset manifest.
+* [x] Chạy Rust Processor.
+* [x] Chạy R Preprocessing (Silver & Gold).
+* [x] Chạy Python Model Training.
+* [x] Kiểm tra ONNX model artifacts.
+* [x] Chạy Rust ONNX Engine (UDS IPC).
+* [x] Chạy Go API Gateway.
+* [x] Mở Streamlit Dashboard.
+* [x] Kiểm tra toàn bộ pipeline end-to-end.
 
 ---
 
