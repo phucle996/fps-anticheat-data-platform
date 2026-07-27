@@ -6,9 +6,9 @@ import (
 	"os/signal"
 	"syscall"
 
-	"pubg-anti-cheat/go-ingestor/internal/app"
 	"pubg-anti-cheat/go-ingestor/internal/config"
 	"pubg-anti-cheat/go-ingestor/internal/logging"
+	"pubg-anti-cheat/go-ingestor/internal/service"
 )
 
 func main() {
@@ -26,14 +26,14 @@ func main() {
 		log.WithError(err).Fatal("Nạp cấu hình ứng dụng thất bại")
 	}
 
-	// 4. Khởi tạo đối tượng App với các dependencies đã nạp
-	datasetApp, err := app.NewDatasetSyncApp(cfg, log)
+	// 4. Khởi tạo đối tượng DatasetSyncService với Flat Architecture
+	datasetService, err := service.NewDatasetSyncService(cfg, log)
 	if err != nil {
-		log.WithError(err).Fatal("Khởi tạo ứng dụng DatasetSyncApp thất bại")
+		log.WithError(err).Fatal("Khởi tạo dịch vụ DatasetSyncService thất bại")
 	}
 
 	// 5. Thực thi Use Case ứng dụng và xử lý lỗi
-	if err := datasetApp.Run(ctx); err != nil {
+	if err := datasetService.Run(ctx); err != nil {
 		if ctx.Err() != nil {
 			log.Warn("Tiến trình bị ngắt bởi tín hiệu Graceful Shutdown từ hệ thống")
 		} else {

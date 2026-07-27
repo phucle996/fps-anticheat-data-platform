@@ -1,15 +1,33 @@
-package parser
+package service
 
 import (
 	"encoding/csv"
+	"errors"
 	"fmt"
 	"io"
 	"strings"
 )
 
-// -----------------------------------------------------------------------------
-// 1. RawRecord Helper
-// -----------------------------------------------------------------------------
+// ErrEOF báo hiệu đã đọc hết dữ liệu trong CSV stream
+var ErrEOF = errors.New("đã đọc tới cuối file (EOF)")
+
+// ErrMalformedRow báo hiệu một dòng CSV bị sai lệch cấu trúc cột
+var ErrMalformedRow = errors.New("dòng CSV bị sai lệch định dạng/số lượng cột")
+
+// Parser định nghĩa interface đọc bản ghi thô từ nguồn dataset
+type Parser interface {
+	// Next đọc và trả về bản ghi tiếp theo trong stream
+	Next() (*RawRecord, error)
+	// Close đóng luồng đọc dữ liệu nếu cần
+	Close() error
+}
+
+// RawRecord lưu trữ dữ liệu thô chưa chuẩn hóa từ một dòng trong dataset
+type RawRecord struct {
+	SourceFile  string            // Tên file nguồn (vd: train_V2.csv)
+	RecordIndex int64             // Chỉ số dòng trong file (bắt đầu từ 1 sau Header)
+	Fields      map[string]string // Map lưu tên cột -> giá trị chuỗi thô
+}
 
 // NewRawRecord tạo một đối tượng RawRecord mới với map khởi tạo sẵn
 func NewRawRecord(sourceFile string, recordIndex int64) *RawRecord {
@@ -20,10 +38,6 @@ func NewRawRecord(sourceFile string, recordIndex int64) *RawRecord {
 	}
 }
 
-// -----------------------------------------------------------------------------
-// 2. Dynamic Column Mapping
-// -----------------------------------------------------------------------------
-
 // ColumnMap lưu trữ bản đồ ánh xạ từ tên cột CSV sang vị trí chỉ số (Index) trong mảng
 type ColumnMap map[string]int
 
@@ -31,7 +45,6 @@ type ColumnMap map[string]int
 func NewColumnMap(header []string) ColumnMap {
 	cMap := make(ColumnMap)
 	for i, colName := range header {
-		// Chuẩn hóa tên cột: xóa khoảng trắng dư thừa
 		cleanName := strings.TrimSpace(colName)
 		cMap[cleanName] = i
 	}
@@ -42,14 +55,10 @@ func NewColumnMap(header []string) ColumnMap {
 func (cm ColumnMap) GetField(row []string, colName string) string {
 	idx, exists := cm[colName]
 	if !exists || idx < 0 || idx >= len(row) {
-		return "" // Trả về chuỗi rỗng nếu cột không tồn tại hoặc vượt vị trí
+		return ""
 	}
 	return strings.TrimSpace(row[idx])
 }
-
-// -----------------------------------------------------------------------------
-// 3. CSV Streaming Parser Implementation
-// -----------------------------------------------------------------------------
 
 // CSVParser triển khai interface Parser để đọc luồng CSV dòng qua dòng (Streaming)
 type CSVParser struct {
@@ -68,7 +77,6 @@ func NewCSVParser(reader io.Reader, sourceFile string) (*CSVParser, error) {
 	}
 
 	csvReader := csv.NewReader(reader)
-	// Cho phép số lượng cột linh hoạt để tự kiểm soát lỗi ở tầng ứng dụng
 	csvReader.FieldsPerRecord = -1
 	csvReader.LazyQuotes = true
 	csvReader.TrimLeadingSpace = true
@@ -90,7 +98,6 @@ func NewCSVParser(reader io.Reader, sourceFile string) (*CSVParser, error) {
 
 // Next đọc dòng CSV tiếp theo trong luồng stream và trả về RawRecord
 func (p *CSVParser) Next() (*RawRecord, error) {
-	// 1. Nếu chưa đọc Header, đọc dòng đầu tiên làm Header để tạo ColumnMap
 	if !p.headerRead {
 		headerRow, err := p.reader.Read()
 		if err != nil {
@@ -103,7 +110,6 @@ func (p *CSVParser) Next() (*RawRecord, error) {
 		p.headerRead = true
 	}
 
-	// 2. Vòng lặp đọc dòng dữ liệu tiếp theo (tự động bỏ qua các dòng rỗng)
 	for {
 		row, err := p.reader.Read()
 		if err != nil {
@@ -113,17 +119,14 @@ func (p *CSVParser) Next() (*RawRecord, error) {
 			return nil, fmt.Errorf("lỗi khi đọc dòng CSV: %w", err)
 		}
 
-		p.recordIndex++ // Tăng số đếm chỉ số dòng bản ghi
+		p.recordIndex++
 
-		// Bỏ qua dòng hoàn toàn rỗng
+		// Bỏ qua các dòng rỗng
 		if len(row) == 0 || (len(row) == 1 && row[0] == "") {
 			continue
 		}
 
-		// Khởi tạo RawRecord cho dòng hiện tại
 		record := NewRawRecord(p.sourceFile, p.recordIndex)
-
-		// Gán toàn bộ các giá trị cột từ Header vào Record Fields
 		for colName := range p.columnMap {
 			record.Fields[colName] = p.columnMap.GetField(row, colName)
 		}
@@ -132,7 +135,7 @@ func (p *CSVParser) Next() (*RawRecord, error) {
 	}
 }
 
-// Close đóng luồng reader nguồn nếu hỗ trợ io.Closer
+// Close đóng luồng reader nguồn nếu có
 func (p *CSVParser) Close() error {
 	if p.closer != nil {
 		return p.closer.Close()

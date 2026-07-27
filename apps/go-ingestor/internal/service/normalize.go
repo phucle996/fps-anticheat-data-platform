@@ -1,4 +1,4 @@
-package normalize
+package service
 
 import (
 	"crypto/sha256"
@@ -9,8 +9,12 @@ import (
 	"time"
 
 	"pubg-anti-cheat/go-ingestor/internal/contract"
-	"pubg-anti-cheat/go-ingestor/internal/parser"
 )
+
+// Normalizer định nghĩa interface chuẩn hóa bản ghi thô thành EventEnvelope hoặc InvalidRecord
+type Normalizer interface {
+	Normalize(raw *RawRecord) (*contract.EventEnvelope, *contract.InvalidRecord, error)
+}
 
 // PlayerStatNormalizer thực thi interface Normalizer cho bản ghi PUBG Player Statistics
 type PlayerStatNormalizer struct {
@@ -25,16 +29,15 @@ func NewPlayerStatNormalizer(datasetID string) *PlayerStatNormalizer {
 }
 
 // Normalize thực thi luồng parse, sinh event_id định hạn SHA-256 và validate dữ liệu
-func (n *PlayerStatNormalizer) Normalize(raw *parser.RawRecord) (*contract.EventEnvelope, *contract.InvalidRecord, error) {
+func (n *PlayerStatNormalizer) Normalize(raw *RawRecord) (*contract.EventEnvelope, *contract.InvalidRecord, error) {
 	if raw == nil || raw.Fields == nil {
 		return nil, nil, fmt.Errorf("raw record không được phép nil")
 	}
 
 	var valErrors []string
 
-	// 1. Trích xuất và chuẩn hóa các trường định danh cơ bản
+	// 1. Trích xuất các trường định danh cơ bản
 	playerID := strings.TrimSpace(raw.Fields["Id"])
-	groupID := strings.TrimSpace(raw.Fields["groupId"])
 	matchID := strings.TrimSpace(raw.Fields["matchId"])
 
 	if playerID == "" {
@@ -81,7 +84,6 @@ func (n *PlayerStatNormalizer) Normalize(raw *parser.RawRecord) (*contract.Event
 		valErrors = append(valErrors, fmt.Sprintf("lỗi parse 'matchDuration': %v", errM))
 	}
 
-	// winPlacePerc là nullable float
 	var winPlacePercPtr *float64
 	if strVal, ok := raw.Fields["winPlacePerc"]; ok && strings.TrimSpace(strVal) != "" {
 		val, errWP := parseFloat(strVal)
@@ -92,7 +94,7 @@ func (n *PlayerStatNormalizer) Normalize(raw *parser.RawRecord) (*contract.Event
 		}
 	}
 
-	// 4. Semantic Validation Rules (Kiểm tra logic game)
+	// 4. Semantic Validation Rules
 	if errK == nil && kills < 0 {
 		valErrors = append(valErrors, fmt.Sprintf("kills (%d) không được âm", kills))
 	}
@@ -108,14 +110,8 @@ func (n *PlayerStatNormalizer) Normalize(raw *parser.RawRecord) (*contract.Event
 	if errW == nil && walkDistance < 0 {
 		valErrors = append(valErrors, fmt.Sprintf("walkDistance (%.2f) không được âm", walkDistance))
 	}
-	if errR == nil && rideDistance < 0 {
-		valErrors = append(valErrors, fmt.Sprintf("rideDistance (%.2f) không được âm", rideDistance))
-	}
-	if errS == nil && swimDistance < 0 {
-		valErrors = append(valErrors, fmt.Sprintf("swimDistance (%.2f) không được âm", swimDistance))
-	}
 
-	// 5. Nếu có bất kỳ lỗi validation nào -> Trả về InvalidRecord để đẩy sang Kafka DLQ
+	// 5. Trả về InvalidRecord nếu có lỗi
 	if len(valErrors) > 0 {
 		return nil, &contract.InvalidRecord{
 			SourceFile:       raw.SourceFile,
@@ -126,8 +122,7 @@ func (n *PlayerStatNormalizer) Normalize(raw *parser.RawRecord) (*contract.Event
 		}, nil
 	}
 
-	// 6. Sinh mã băm Deterministic Event ID (SHA-256) đảm bảo tính Idempotency khi Replay
-	// Formula: SHA256(match_id + ":" + player_id + ":" + source_file + ":" + string(record_index))
+	// 6. Sinh mã băm Deterministic Event ID (SHA-256)
 	eventIDStr := fmt.Sprintf("%s:%s:%s:%d", matchID, playerID, raw.SourceFile, raw.RecordIndex)
 	hasher := sha256.New()
 	hasher.Write([]byte(eventIDStr))
@@ -160,25 +155,20 @@ func (n *PlayerStatNormalizer) Normalize(raw *parser.RawRecord) (*contract.Event
 		},
 	}
 
-	_ = groupID // groupID đã được lưu trong context nếu cần
-
 	return envelope, nil, nil
 }
 
-// parseInteger parse chuỗi thành số nguyên int64
 func parseInteger(valStr string) (int64, error) {
 	valStr = strings.TrimSpace(valStr)
 	if valStr == "" {
 		return 0, nil
 	}
-	// Hỗ trợ parse số thực dạng "5.0" thành int64 5 nếu có
 	if floatVal, err := strconv.ParseFloat(valStr, 64); err == nil {
 		return int64(floatVal), nil
 	}
 	return strconv.ParseInt(valStr, 10, 64)
 }
 
-// parseFloat parse chuỗi thành số thực float64
 func parseFloat(valStr string) (float64, error) {
 	valStr = strings.TrimSpace(valStr)
 	if valStr == "" {

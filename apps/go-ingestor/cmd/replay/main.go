@@ -7,10 +7,9 @@ import (
 	"os/signal"
 	"syscall"
 
-	"pubg-anti-cheat/go-ingestor/internal/app"
 	"pubg-anti-cheat/go-ingestor/internal/config"
 	"pubg-anti-cheat/go-ingestor/internal/logging"
-	"pubg-anti-cheat/go-ingestor/internal/replay"
+	"pubg-anti-cheat/go-ingestor/internal/service"
 )
 
 func main() {
@@ -34,21 +33,21 @@ func main() {
 		log.WithError(err).Fatal("Nạp cấu hình ứng dụng thất bại")
 	}
 
-	// 5. Khởi tạo ReplayApp với các dependencies
-	replayApp, err := app.NewReplayApp(cfg, log)
+	// 5. Khởi tạo ReplayService từ Flat Architecture
+	replayService, err := service.NewReplayService(cfg, log)
 	if err != nil {
-		log.WithError(err).Fatal("Khởi tạo ứng dụng ReplayApp thất bại")
+		log.WithError(err).Fatal("Khởi tạo ứng dụng ReplayService thất bại")
 	}
 
 	// 6. Cấu hình các tham số Replay
-	replayConfig := replay.ReplayerConfig{
+	replayConfig := service.ReplayerConfig{
 		Limit:       *limitFlag,
 		StartRecord: *startFlag,
 		DryRun:      *dryRunFlag,
 	}
 
 	// 7. Thực thi Use Case Replay Dataset
-	if _, err := replayApp.Run(ctx, replayConfig); err != nil {
+	if _, err := replayService.Run(ctx, replayConfig); err != nil {
 		if ctx.Err() != nil {
 			log.Warn("Tiến trình replay bị ngắt bởi tín hiệu Graceful Shutdown từ hệ thống")
 		} else {

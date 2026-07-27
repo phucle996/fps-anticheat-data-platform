@@ -153,6 +153,9 @@
 * [x] Đếm produced records.
 * [x] Thêm graceful shutdown.
 
+### Phase 7 FIX bổ sung
+* [x] Refactor go-ingestor sang Flat Architecture (gom toàn bộ core logic vào `internal/service/` và unit tests vào `internal/test/service/`).
+
 ---
 
 ## Phase 8 — Go Kafka Producer
