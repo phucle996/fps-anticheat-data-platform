@@ -492,48 +492,58 @@
 
 ---
 
-## Phase 25 — Dedicated Rust Inference Service và Unix Domain Socket IPC
+## Phase 25 — Rust ONNX Runtime Engine (`apps/rust-processor/src/inference/`)
 
-* [ ] Khởi tạo dịch vụ Rust Inference độc lập (`apps/rust-inference`).
-* [ ] Tích hợp ONNX Runtime C-bindings (`ort` crate) vào `rust-inference`.
+* [ ] Tích hợp ONNX Runtime C-bindings (`ort` crate) vào Rust Processor.
 * [ ] Subscribe Kafka event `pubg.v1.ml.model.ready`.
 * [ ] Tải và verify checksum ONNX Model Bundle từ MinIO S3 (`s3://pubg-models/`).
 * [ ] Atomic Hot-Swap mô hình ONNX trong RAM (Zero Downtime).
-* [ ] Thiết lập Unix Domain Socket Listener (`/tmp/rust_inference.sock`) phục vụ IPC siêu tốc với Go API.
-* [ ] Chạy Tensor Inference cho Batch và Real-time payload qua UDS IPC.
+* [ ] Chạy Tensor Inference trực tiếp cho tập dữ liệu Gold features.
+* [ ] Viết unit test cho Rust ONNX Engine.
+
+---
+
+## Phase 26 — Rust Unix Domain Socket IPC Server (`apps/rust-processor/src/ipc/`)
+
+* [ ] Thiết lập Unix Domain Socket Listener (`/tmp/rust_inference.sock`) trong Rust Processor.
+* [ ] Xử lý giao thức IPC Request/Response JSON siêu tốc với Go API Gateway.
 * [ ] Chuẩn hóa Anomaly Risk Score (0.0 - 1.0) và gán nhãn Risk Level.
 * [ ] Ghi kết quả Predictions Parquet lên MinIO `s3://pubg-predictions/`.
 * [ ] Publish Kafka event `pubg.v1.ml.inference.completed`.
-* [ ] Viết unit test cho Rust Inference Service.
+* [ ] Viết unit test cho Rust UDS IPC Server.
 
 ---
 
-## Phase 26 — Go API Gateway và Prediction Evidence Matrix
+## Phase 27 — Go API Gateway Service (`apps/go-api/`)
 
-* [ ] Xây dựng Go API Gateway HTTP REST Endpoints (Proxy real-time inference request & status).
-* [ ] Kết nối Unix Domain Socket IPC client (`/tmp/rust_inference.sock`) từ Go tới Rust Inference.
-* [ ] Viết Model Parity Test (Xác nhận Python ONNX Runtime output ≈ Rust ONNX Runtime output ≤ 1e-5).
+* [ ] Khởi tạo ứng dụng Go API Gateway độc lập (`apps/go-api`).
+* [ ] Thêm biến môi trường cấu hình Fail-Close cho Go API Gateway.
+* [ ] Xây dựng HTTP REST Endpoints (`/api/v1/health`, `/api/v1/predict`, `/api/v1/dataset/summary`).
+* [ ] Kết nối Unix Domain Socket IPC client (`/tmp/rust_inference.sock`) tới Rust Processor Engine.
+* [ ] Viết integration test cho Go API Gateway.
+
+---
+
+## Phase 28 — Prediction Evidence và Model Parity Verification
+
+* [ ] Viết Model Parity Test (Xác nhận Python ONNX output ≈ Rust ONNX output ≤ 1e-5).
 * [ ] Tính toán Robust Z-Score và Feature Percentile so với trung bình Lobby.
 * [ ] Trích xuất Top Evidence Features nghi vấn gian lận cho từng player.
-* [ ] Đóng gói Weak-label Risk Score và Evidence Matrix vào Prediction Response.
-* [ ] Viết integration test cho Go API Gateway & Evidence Generation.
+* [ ] Đóng gói Weak-label Risk Score và Evidence Matrix vào Prediction API Response.
+* [ ] Viết unit test cho Evidence Generation.
 
 ---
 
-## Phase 27 — Streamlit Dashboard Foundation (Data Quality & Preprocessing Explorer)
+## Phase 29 — Streamlit Dashboard Foundation (`apps/streamlit-dashboard`)
 
 * [ ] Khởi tạo Streamlit Application (`apps/streamlit-dashboard`).
-* [ ] Cấu hình kết nối MinIO S3 Data Lake & Kafka logs.
-* [ ] Xây dựng Page 1: Overview & Pipeline Health Monitor.
-* [ ] Xây dựng Page 2: Preprocessing Before & After Interactive Explorer (So sánh màng lọc dữ liệu 1-1).
-* [ ] Xây dựng Page 3: Silver & Gold Interactive DataFrames Explorer (Lọc, tra cứu, xem chi tiết).
-* [ ] Xây dựng Page 4: ML Verification & Prediction Risk Score Visualizer.
-* [ ] Tạo Dockerfile cho Streamlit Dashboard.
+* [ ] Cấu hình kết nối MinIO S3 Data Lake & Go API Gateway.
+* [ ] Tạo navigation layout đa trang và Dockerfile cho Streamlit.
 * [ ] Bổ sung `streamlit-dashboard` vào Docker Compose.
 
 ---
 
-## Phase 28 — Streamlit Overview Page
+## Phase 30 — Streamlit Overview & Health Page
 
 * [ ] Hiển thị tổng số records.
 * [ ] Hiển thị tổng số matches.
@@ -548,136 +558,68 @@
 
 ---
 
-## Phase 29 — Streamlit Data Quality Page (Preprocessing Before vs After)
+## Phase 31 — Streamlit Preprocessing Before vs After Page
 
 * [ ] Hiển thị missing values.
 * [ ] Hiển thị duplicate records.
 * [ ] Hiển thị invalid records.
 * [ ] Hiển thị invalid reasons.
 * [ ] Hiển thị record count theo batch.
-* [ ] Hiển thị record distribution.
-* [ ] Thêm filter theo source file.
-* [ ] Thêm filter theo batch.
+* [ ] Biểu đồ so sánh 1-1 trước và sau khi làm sạch dữ liệu.
+* [ ] Thêm filter theo source file và batch.
 
 ---
 
-## Phase 30 — Streamlit Player Analysis Page
+## Phase 32 — Streamlit Player Analysis Page
 
 * [ ] Tạo player selector.
 * [ ] Hiển thị match history.
-* [ ] Hiển thị kills.
-* [ ] Hiển thị damage.
-* [ ] Hiển thị headshot ratio.
-* [ ] Hiển thị movement.
-* [ ] Hiển thị survival duration.
-* [ ] Hiển thị Gold features.
-* [ ] So sánh với lobby.
+* [ ] Hiển thị kills, damage, headshot ratio, movement.
+* [ ] So sánh chỉ số người chơi với trung bình Lobby.
 * [ ] Hiển thị risk score.
 * [ ] Hiển thị prediction evidence.
 
 ---
 
-## Phase 31 — Streamlit Risk Analysis Page
+## Phase 33 — Streamlit Risk Analysis Page
 
 * [ ] Hiển thị prediction table.
 * [ ] Sort theo risk score.
-* [ ] Filter theo risk level.
-* [ ] Filter theo model version.
+* [ ] Filter theo risk level và model version.
 * [ ] Hiển thị score distribution.
-* [ ] Hiển thị số lượng theo risk level.
-* [ ] Hiển thị prediction details.
-* [ ] Hiển thị top evidence.
-* [ ] Hiển thị feature values.
-* [ ] Hiển thị reference values.
+* [ ] Hiển thị prediction details và top evidence features.
 
 ---
 
-## Phase 32 — End-to-End Integration
+## Phase 34 — End-to-End System Integration
 
 * [ ] Chạy Kafka và MinIO.
 * [ ] Chạy Dataset Sync.
 * [ ] Kiểm tra dataset manifest.
 * [ ] Chạy Rust Processor.
-* [ ] Chạy Go Replay.
-* [ ] Kiểm tra Kafka messages.
-* [ ] Kiểm tra Bronze Parquet.
-* [ ] Kiểm tra batch manifests.
-* [ ] Chạy R Preprocessing.
-* [ ] Kiểm tra Silver data.
-* [ ] Chạy Feature Engineering.
-* [ ] Kiểm tra Gold data.
+* [ ] Chạy R Preprocessing (Silver & Gold).
 * [ ] Chạy Python Model Training.
 * [ ] Kiểm tra ONNX model artifacts.
-* [ ] Chạy Rust Model Scoring / Inference.
-* [ ] Kiểm tra predictions.
+* [ ] Chạy Rust ONNX Engine (UDS IPC).
+* [ ] Chạy Go API Gateway.
 * [ ] Mở Streamlit Dashboard.
-* [ ] Kiểm tra toàn bộ dashboard.
+* [ ] Kiểm tra toàn bộ pipeline end-to-end.
 
 ---
 
-## Phase 33 — Testing
+## Phase 35 — Comprehensive Testing Suite
 
-* [ ] Go parser unit tests.
-* [ ] Go normalizer unit tests.
-* [ ] Go validation unit tests.
-* [ ] Go batching unit tests.
-* [ ] Go checkpoint unit tests.
-* [ ] Go Kafka integration tests.
-* [ ] Rust deserialization tests.
-* [ ] Rust validation tests.
-* [ ] Rust deduplication tests.
-* [ ] Rust accumulator tests.
-* [ ] Rust Parquet tests.
-* [ ] Rust MinIO integration tests.
-* [ ] R preprocessing tests.
-* [ ] R feature tests.
-* [ ] R scoring tests.
-* [ ] R evidence tests.
-* [ ] End-to-end test với sample dataset.
-* [ ] Failure test khi Kafka unavailable.
-* [ ] Failure test khi MinIO unavailable.
-* [ ] Failure test khi feature schema sai.
+* [ ] Go API unit & integration tests.
+* [ ] Rust ONNX & IPC unit tests.
+* [ ] R preprocessing & feature tests.
+* [ ] Python ML training & export tests.
+* [ ] End-to-end failure tests.
 
 ---
 
-## Phase 34 — Logging và Error Handling
+## Phase 36 — Logging, Documentation và Demo Setup
 
-* [ ] Chuẩn hóa log format.
-* [ ] Thêm service name.
-* [ ] Thêm operation name.
-* [ ] Thêm dataset ID.
-* [ ] Thêm replay ID.
-* [ ] Thêm batch ID.
-* [ ] Thêm Kafka partition.
-* [ ] Thêm Kafka offsets.
-* [ ] Thêm record count.
-* [ ] Thêm duration.
-* [ ] Thêm status.
-* [ ] Thêm error details.
-* [ ] Không log secrets.
-* [ ] Xử lý graceful shutdown cho Go.
-* [ ] Xử lý graceful shutdown cho Rust.
-* [ ] Xử lý command failure cho R.
-
----
-
-## Phase 35 — Documentation và Demo
-
-* [ ] Hoàn thiện architecture document.
-* [ ] Hoàn thiện repository structure document.
-* [ ] Viết data contract document.
-* [ ] Viết data dictionary.
-* [ ] Viết feature dictionary.
-* [ ] Viết model description.
-* [ ] Viết hướng dẫn cấu hình Kaggle credentials.
-* [ ] Viết hướng dẫn chạy Docker Compose.
-* [ ] Viết hướng dẫn chạy từng service.
-* [ ] Viết hướng dẫn chạy full pipeline.
-* [ ] Tạo demo sample dataset.
-* [ ] Tạo demo commands.
-* [ ] Tạo `make demo`.
-* [ ] Chuẩn bị demo script.
-* [ ] Chuẩn bị screenshots.
-* [ ] Chuẩn bị video demo dự phòng.
-* [ ] Viết phần limitations.
-* [ ] Viết phần future work.
+* [ ] Chuẩn hóa log format và OTel log routing.
+* [ ] Hoàn thiện architecture document & data dictionary.
+* [ ] Tạo demo sample dataset và `make demo` command.
+* [ ] Chuẩn bị screenshots và video demo dự phòng.
