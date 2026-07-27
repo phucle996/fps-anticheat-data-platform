@@ -520,11 +520,11 @@
 
 ## Phase 27 — Go API Gateway Service (`apps/ml-platform/go-api/`)
 
-* [ ] Khởi tạo module Go API Gateway (`apps/ml-platform/go-api`).
-* [ ] Thêm biến môi trường cấu hình Fail-Close cho Go API Gateway.
-* [ ] Xây dựng HTTP REST Endpoints (`/api/v1/health`, `/api/v1/predict`, `/api/v1/dataset/summary`).
-* [ ] Kết nối Unix Domain Socket IPC client (`/tmp/rust_inference.sock`) tới `rust-inference`.
-* [ ] Viết integration test cho Go API Gateway.
+* [x] Khởi tạo module Go API Gateway (`apps/ml-platform/go-api`).
+* [x] Thêm biến môi trường cấu hình Fail-Close cho Go API Gateway.
+* [x] Xây dựng HTTP REST Endpoints (`/api/v1/health`, `/api/v1/predict`, `/api/v1/dataset/summary`).
+* [x] Kết nối Unix Domain Socket IPC client (`/tmp/rust_inference.sock`) tới `rust-inference`.
+* [x] Viết integration test cho Go API Gateway.
 
 ---
 
