@@ -8,4 +8,7 @@ pub use config::Config;
 pub use domain::*;
 pub use error::{AppError, Result};
 pub use ingest::{BatchAccumulator, BatchAccumulatorConfig, CompletedBatch, ConsumedMessage, KafkaConsumer};
-pub use transform::{EventValidator, InvalidEnvelopeRecord, ValidationOutcome};
+pub use transform::{
+    ArrowConverter, DeduplicateOutcome, EventDeduplicator, EventValidator, InvalidEnvelopeRecord, ParquetSerializer,
+    ValidationOutcome,
+};

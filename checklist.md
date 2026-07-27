@@ -309,30 +309,30 @@
 
 ## Phase 15 — Rust Deduplication
 
-* [ ] Deduplicate theo `event_id`.
-* [ ] Deduplicate trong processing batch.
-* [ ] Đếm duplicate records.
-* [ ] Giữ một record hợp lệ.
-* [ ] Ghi duplicate count vào metadata.
-* [ ] Viết unit test cho duplicate event.
-* [ ] Viết test cho batch không có duplicate.
+* [x] Deduplicate theo `event_id`.
+* [x] Deduplicate trong processing batch.
+* [x] Đếm duplicate records.
+* [x] Giữ một record hợp lệ.
+* [x] Ghi duplicate count vào metadata.
+* [x] Viết unit test cho duplicate event.
+* [x] Viết test cho batch không có duplicate.
 
 ---
 
 ## Phase 16 — Rust Arrow và Parquet
 
-* [ ] Định nghĩa Arrow schema.
-* [ ] Map event metadata thành columns.
-* [ ] Map payload thành columns.
-* [ ] Xử lý nullable columns.
-* [ ] Tạo Arrow arrays.
-* [ ] Tạo Arrow RecordBatch.
-* [ ] Serialize RecordBatch thành Parquet.
-* [ ] Cấu hình Zstandard compression.
-* [ ] Tạo local Parquet test file.
-* [ ] Đọc lại Parquet để kiểm tra.
-* [ ] Viết unit test cho schema transformation.
-* [ ] Viết unit test cho Parquet output.
+* [x] Định nghĩa Arrow schema.
+* [x] Map event metadata thành columns.
+* [x] Map payload thành columns.
+* [x] Xử lý nullable columns.
+* [x] Tạo Arrow arrays.
+* [x] Tạo Arrow RecordBatch.
+* [x] Serialize RecordBatch thành Parquet.
+* [x] Cấu hình Zstandard compression.
+* [x] Tạo local Parquet test file.
+* [x] Đọc lại Parquet để kiểm tra.
+* [x] Viết unit test cho schema transformation.
+* [x] Viết unit test cho Parquet output.
 
 ---
 

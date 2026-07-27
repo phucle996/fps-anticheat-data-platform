@@ -10,7 +10,7 @@ use ingest::{BatchAccumulator, BatchAccumulatorConfig, KafkaConsumer};
 use std::time::Duration;
 use tracing::{info, warn};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
-use transform::EventValidator;
+use transform::{ArrowConverter, EventDeduplicator, EventValidator, ParquetSerializer};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -23,7 +23,7 @@ async fn main() -> Result<()> {
 		.with(json_formatting)
 		.init();
 
-	info!("Khởi động tiến trình Rust Stream Processor Engine (Phase 14 Data Quality Active)...");
+	info!("Khởi động tiến trình Rust Stream Processor Engine (Arrow & Parquet Active)...");
 
 	// 2. Nạp cấu hình ứng dụng từ biến môi trường (Fail-Close 100%)
 	let config = match Config::from_env() {
@@ -57,19 +57,24 @@ async fn main() -> Result<()> {
 	};
 	let mut accumulator = BatchAccumulator::new(accum_config);
 
-	info!("Bắt đầu vòng lặp Consumer Loop (Data Quality Validation Active)...");
+	info!("Bắt đầu vòng lặp Consumer Loop (Deduplication + Arrow + Parquet Active)...");
 	loop {
 		tokio::select! {
 			_ = tokio::signal::ctrl_c() => {
 				info!("Nhận tín hiệu Graceful Shutdown từ OS (Ctrl+C), thực thi Flush bộ đệm dư thừa...");
 				if let Some(final_batch) = accumulator.flush() {
-					let outcome = EventValidator::validate_batch(final_batch.events);
-					info!(
-						batch_id = %final_batch.batch_id,
-						valid_count = outcome.valid_count,
-						invalid_count = outcome.invalid_count,
-						"Đã Flush và Validate thành công Batch cuối cùng khi Shutdown"
-					);
+					let val_outcome = EventValidator::validate_batch(final_batch.events);
+					let dedup_outcome = EventDeduplicator::deduplicate_batch(val_outcome.valid_records);
+					if !dedup_outcome.unique_records.is_empty() {
+						let record_batch = ArrowConverter::events_to_record_batch(&dedup_outcome.unique_records)?;
+						let parquet_bytes = ParquetSerializer::record_batch_to_parquet_bytes(&record_batch)?;
+						info!(
+							batch_id = %final_batch.batch_id,
+							records = record_batch.num_rows(),
+							parquet_size_bytes = parquet_bytes.len(),
+							"Đã Flush, Arrow RecordBatch và nén Parquet Zstd thành công khi Shutdown"
+						);
+					}
 				}
 				break;
 			}
@@ -77,15 +82,29 @@ async fn main() -> Result<()> {
 				match msg_result {
 					Ok(Some(msg)) => {
 						if let Some(completed_batch) = accumulator.push(msg) {
-							// Thực thi 11 quy tắc Data Quality Validation
-							let outcome = EventValidator::validate_batch(completed_batch.events);
-							info!(
-								batch_id = %completed_batch.batch_id,
-								valid_count = outcome.valid_count,
-								invalid_count = outcome.invalid_count,
-								partitions = ?completed_batch.partition_offsets,
-								"Đã Validate Data Quality thành công (Bản ghi hợp lệ sẵn sàng cho Arrow & Parquet)"
-							);
+							// 1. Data Quality Validation
+							let val_outcome = EventValidator::validate_batch(completed_batch.events);
+
+							// 2. Deduplication trong Batch
+							let dedup_outcome = EventDeduplicator::deduplicate_batch(val_outcome.valid_records);
+
+							if !dedup_outcome.unique_records.is_empty() {
+								// 3. Arrow RecordBatch Conversion
+								let record_batch = ArrowConverter::events_to_record_batch(&dedup_outcome.unique_records)?;
+
+								// 4. Parquet Zstd Serialization
+								let parquet_bytes = ParquetSerializer::record_batch_to_parquet_bytes(&record_batch)?;
+
+								info!(
+									batch_id = %completed_batch.batch_id,
+									valid_count = val_outcome.valid_count,
+									dedup_count = dedup_outcome.unique_records.len(),
+									duplicate_filtered = dedup_outcome.duplicate_count,
+									parquet_bytes_len = parquet_bytes.len(),
+									partitions = ?completed_batch.partition_offsets,
+									"Đã chuyển đổi Arrow RecordBatch & nén Parquet Zstandard thành công"
+								);
+							}
 						}
 					}
 					Ok(None) => {
@@ -100,14 +119,19 @@ async fn main() -> Result<()> {
 
 		if accumulator.should_flush_timer() {
 			if let Some(completed_batch) = accumulator.flush() {
-				let outcome = EventValidator::validate_batch(completed_batch.events);
-				info!(
-					batch_id = %completed_batch.batch_id,
-					valid_count = outcome.valid_count,
-					invalid_count = outcome.invalid_count,
-					partitions = ?completed_batch.partition_offsets,
-					"Đã Trigger Flush và Validate Data Quality thành công theo Timer Interval"
-				);
+				let val_outcome = EventValidator::validate_batch(completed_batch.events);
+				let dedup_outcome = EventDeduplicator::deduplicate_batch(val_outcome.valid_records);
+				if !dedup_outcome.unique_records.is_empty() {
+					let record_batch = ArrowConverter::events_to_record_batch(&dedup_outcome.unique_records)?;
+					let parquet_bytes = ParquetSerializer::record_batch_to_parquet_bytes(&record_batch)?;
+					info!(
+						batch_id = %completed_batch.batch_id,
+						dedup_count = dedup_outcome.unique_records.len(),
+						parquet_bytes_len = parquet_bytes.len(),
+						partitions = ?completed_batch.partition_offsets,
+						"Đã Trigger Flush Timer, Arrow RecordBatch & nén Parquet Zstandard thành công"
+					);
+				}
 			}
 		}
 	}

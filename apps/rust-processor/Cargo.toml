@@ -15,6 +15,7 @@ rdkafka = "0.36"
 # Serde mã hóa và giải mã JSON
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+bytes = "1.10"
 
 # Ghìm phiên bản chrono tương thích hoàn hảo với Apache Arrow 51/52
 chrono = "=0.4.38"
