@@ -2,8 +2,10 @@ pub mod config;
 pub mod domain;
 pub mod error;
 pub mod ingest;
+pub mod transform;
 
 pub use config::Config;
 pub use domain::*;
 pub use error::{AppError, Result};
-pub use ingest::{BatchAccumulator, BatchAccumulatorConfig, ConsumedMessage, CompletedBatch, KafkaConsumer};
+pub use ingest::{BatchAccumulator, BatchAccumulatorConfig, CompletedBatch, ConsumedMessage, KafkaConsumer};
+pub use transform::{EventValidator, InvalidEnvelopeRecord, ValidationOutcome};

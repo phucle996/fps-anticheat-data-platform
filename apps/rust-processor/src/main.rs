@@ -2,6 +2,7 @@ mod config;
 mod domain;
 mod error;
 mod ingest;
+mod transform;
 
 use config::Config;
 use error::Result;
@@ -9,6 +10,7 @@ use ingest::{BatchAccumulator, BatchAccumulatorConfig, KafkaConsumer};
 use std::time::Duration;
 use tracing::{info, warn};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
+use transform::EventValidator;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -21,7 +23,7 @@ async fn main() -> Result<()> {
 		.with(json_formatting)
 		.init();
 
-	info!("Khởi động tiến trình Rust Stream Processor Engine (Ingest Module Active)...");
+	info!("Khởi động tiến trình Rust Stream Processor Engine (Phase 14 Data Quality Active)...");
 
 	// 2. Nạp cấu hình ứng dụng từ biến môi trường (Fail-Close 100%)
 	let config = match Config::from_env() {
@@ -55,17 +57,18 @@ async fn main() -> Result<()> {
 	};
 	let mut accumulator = BatchAccumulator::new(accum_config);
 
-	info!("Bắt đầu vòng lặp Consumer Loop (Ingest Module Active)...");
+	info!("Bắt đầu vòng lặp Consumer Loop (Data Quality Validation Active)...");
 	loop {
 		tokio::select! {
 			_ = tokio::signal::ctrl_c() => {
 				info!("Nhận tín hiệu Graceful Shutdown từ OS (Ctrl+C), thực thi Flush bộ đệm dư thừa...");
 				if let Some(final_batch) = accumulator.flush() {
+					let outcome = EventValidator::validate_batch(final_batch.events);
 					info!(
 						batch_id = %final_batch.batch_id,
-						record_count = final_batch.record_count,
-						estimated_bytes = final_batch.estimated_bytes,
-						"Đã Flush thành công Batch cuối cùng khi Shutdown"
+						valid_count = outcome.valid_count,
+						invalid_count = outcome.invalid_count,
+						"Đã Flush và Validate thành công Batch cuối cùng khi Shutdown"
 					);
 				}
 				break;
@@ -74,12 +77,14 @@ async fn main() -> Result<()> {
 				match msg_result {
 					Ok(Some(msg)) => {
 						if let Some(completed_batch) = accumulator.push(msg) {
+							// Thực thi 11 quy tắc Data Quality Validation
+							let outcome = EventValidator::validate_batch(completed_batch.events);
 							info!(
 								batch_id = %completed_batch.batch_id,
-								record_count = completed_batch.record_count,
-								estimated_bytes = completed_batch.estimated_bytes,
+								valid_count = outcome.valid_count,
+								invalid_count = outcome.invalid_count,
 								partitions = ?completed_batch.partition_offsets,
-								"Đã đóng gói thành công CompletedBatch (Sẵn sàng cho Arrow & Parquet Conversion)"
+								"Đã Validate Data Quality thành công (Bản ghi hợp lệ sẵn sàng cho Arrow & Parquet)"
 							);
 						}
 					}
@@ -95,12 +100,13 @@ async fn main() -> Result<()> {
 
 		if accumulator.should_flush_timer() {
 			if let Some(completed_batch) = accumulator.flush() {
+				let outcome = EventValidator::validate_batch(completed_batch.events);
 				info!(
 					batch_id = %completed_batch.batch_id,
-					record_count = completed_batch.record_count,
-					estimated_bytes = completed_batch.estimated_bytes,
+					valid_count = outcome.valid_count,
+					invalid_count = outcome.invalid_count,
 					partitions = ?completed_batch.partition_offsets,
-					"Đã Trigger Flush CompletedBatch thành công theo Timer Interval"
+					"Đã Trigger Flush và Validate Data Quality thành công theo Timer Interval"
 				);
 			}
 		}

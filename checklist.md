@@ -289,21 +289,21 @@
 
 ## Phase 14 — Rust Data Quality
 
-* [ ] Validate schema version.
-* [ ] Validate event ID.
-* [ ] Validate operation.
-* [ ] Validate match ID.
-* [ ] Validate player ID.
-* [ ] Validate payload structure.
-* [ ] Validate kills.
-* [ ] Validate damage.
-* [ ] Validate movement distance.
-* [ ] Validate survival duration.
-* [ ] Validate headshot kills.
-* [ ] Đếm valid records.
-* [ ] Đếm invalid records.
-* [ ] Ghi validation reason.
-* [ ] Viết unit test cho từng validation rule.
+* [x] Validate schema version.
+* [x] Validate event ID.
+* [x] Validate operation.
+* [x] Validate match ID.
+* [x] Validate player ID.
+* [x] Validate payload structure.
+* [x] Validate kills.
+* [x] Validate damage.
+* [x] Validate movement distance.
+* [x] Validate survival duration.
+* [x] Validate headshot kills.
+* [x] Đếm valid records.
+* [x] Đếm invalid records.
+* [x] Ghi validation reason.
+* [x] Viết unit test cho từng validation rule.
 
 ---
 
