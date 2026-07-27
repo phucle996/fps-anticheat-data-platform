@@ -587,11 +587,11 @@
 
 ## Phase 33 — Streamlit Risk Analysis Page
 
-* [ ] Hiển thị prediction table.
-* [ ] Sort theo risk score.
-* [ ] Filter theo risk level và model version.
-* [ ] Hiển thị score distribution.
-* [ ] Hiển thị prediction details và top evidence features.
+* [x] Hiển thị prediction table.
+* [x] Sort theo risk score.
+* [x] Filter theo risk level và model version.
+* [x] Hiển thị score distribution.
+* [x] Hiển thị prediction details và top evidence features.
 
 ---
 
