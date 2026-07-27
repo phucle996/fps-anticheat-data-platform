@@ -9,7 +9,7 @@ pub use config::Config;
 pub use domain::*;
 pub use error::{AppError, Result};
 pub use ingest::{BatchAccumulator, BatchAccumulatorConfig, CompletedBatch, ConsumedMessage, KafkaConsumer};
-pub use storage::MinioWriter;
+pub use storage::{BatchManifest, MinioWriter, PartitionOffsetMetadata};
 pub use transform::{
     ArrowConverter, DeduplicateOutcome, EventDeduplicator, EventValidator, InvalidEnvelopeRecord, ParquetSerializer,
     ValidationOutcome,

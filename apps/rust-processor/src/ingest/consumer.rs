@@ -5,6 +5,7 @@ use rdkafka::config::ClientConfig;
 use rdkafka::consumer::{Consumer, StreamConsumer};
 use rdkafka::message::Message;
 use rdkafka::TopicPartitionList;
+use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::{error, info, warn};
 
@@ -110,7 +111,7 @@ impl KafkaConsumer {
         }
     }
 
-    /// Commit_offset thực thi commit thủ công offset cho partition sau khi batch ghi Parquet thành công
+    /// Commit_offset thực thi commit thủ công offset cho 1 partition đơn lẻ
     pub fn commit_offset(&self, partition: i32, offset: i64) -> Result<()> {
         let mut tpl = TopicPartitionList::new();
         // Commit offset + 1 theo chuẩn Kafka specification
@@ -126,6 +127,32 @@ impl KafkaConsumer {
             partition = partition,
             committed_offset = offset + 1,
             "Đã commit offset thủ công thành công sang Kafka Cluster"
+        );
+
+        Ok(())
+    }
+
+    /// Commit_partition_offsets commit offset cho tất cả các partition trong batch cùng lúc
+    pub fn commit_partition_offsets(&self, partition_offsets: &HashMap<i32, (i64, i64)>) -> Result<()> {
+        if partition_offsets.is_empty() {
+            return Ok(());
+        }
+
+        let mut tpl = TopicPartitionList::new();
+        for (partition, (_min_off, max_off)) in partition_offsets {
+            // Commit max_offset + 1 cho từng partition
+            tpl.add_partition_offset(&self.topic, *partition, rdkafka::Offset::Offset(*max_off + 1))
+                .map_err(|e| AppError::Kafka(format!("Thêm Partition {} offset {} thất bại: {}", partition, max_off + 1, e)))?;
+        }
+
+        self.consumer
+            .commit(&tpl, rdkafka::consumer::CommitMode::Sync)
+            .map_err(|e| AppError::Kafka(format!("Commit multi-partition offsets thất bại: {}", e)))?;
+
+        info!(
+            topic = %self.topic,
+            partitions_count = partition_offsets.len(),
+            "Đã commit thành công Kafka offsets cho toàn bộ Partitions trong Batch (Two-Phase Commit Completed)"
         );
 
         Ok(())

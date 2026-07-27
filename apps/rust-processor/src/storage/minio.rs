@@ -1,3 +1,4 @@
+use super::manifest::BatchManifest;
 use crate::config::Config;
 use crate::error::{AppError, Result};
 use crate::transform::InvalidEnvelopeRecord;
@@ -58,6 +59,15 @@ impl MinioWriter {
         )
     }
 
+    /// Generate_manifest_path sinh đường dẫn Hive Partitioning cho Batch Manifest JSON
+    pub fn generate_manifest_path(batch_id: &str, time_str: &str) -> String {
+        let (year, month, day) = Self::parse_date_or_now(time_str);
+        format!(
+            "manifests/year={}/month={:02}/day={:02}/manifest_{}.json",
+            year, month, day, batch_id
+        )
+    }
+
     /// Compute_sha256 tính toán mã băm SHA-256 checksum của file bytes
     pub fn compute_sha256(bytes: &[u8]) -> String {
         use sha2::{Digest, Sha256};
@@ -71,7 +81,6 @@ impl MinioWriter {
         let checksum = Self::compute_sha256(&bytes);
         let object_path = ObjectPath::from(path_str);
 
-        // Upload dữ liệu dạng Payload Put Payload
         self.store
             .put(&object_path, bytes.into())
             .await
@@ -85,6 +94,27 @@ impl MinioWriter {
         );
 
         Ok(checksum)
+    }
+
+    /// Upload_manifest upload BatchManifest JSON lên MinIO S3
+    pub async fn upload_manifest(&self, path_str: &str, manifest: &BatchManifest) -> Result<()> {
+        let json_bytes = serde_json::to_vec_pretty(manifest)
+            .map_err(|e| AppError::Storage(format!("Mã hóa BatchManifest JSON thất bại: {}", e)))?;
+
+        let object_path = ObjectPath::from(path_str);
+        self.store
+            .put(&object_path, json_bytes.into())
+            .await
+            .map_err(|e| AppError::Storage(format!("Upload BatchManifest JSON lên MinIO path {} thất bại: {}", path_str, e)))?;
+
+        info!(
+            bucket = %self.bucket,
+            path = %path_str,
+            batch_id = %manifest.batch_id,
+            "Đã upload thành công Batch Manifest Audit Log lên MinIO S3"
+        );
+
+        Ok(())
     }
 
     /// Upload_invalid_records upload danh sách bản ghi vi phạm dưới dạng JSON lên MinIO S3

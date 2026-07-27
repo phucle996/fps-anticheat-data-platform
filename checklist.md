@@ -355,21 +355,21 @@
 
 ## Phase 18 — Rust Batch Manifest và Offset Commit
 
-* [ ] Định nghĩa batch manifest.
-* [ ] Ghi source topic.
-* [ ] Ghi partition.
-* [ ] Ghi first offset.
-* [ ] Ghi last offset.
-* [ ] Ghi record counts.
-* [ ] Ghi data object path.
-* [ ] Ghi checksum.
-* [ ] Ghi processing timestamp.
-* [ ] Upload manifest lên MinIO.
-* [ ] Chỉ commit offset sau Parquet upload.
-* [ ] Chỉ commit offset sau manifest upload.
-* [ ] Xử lý retry khi commit lỗi.
-* [ ] Kiểm tra idempotent object path.
-* [ ] Viết integration test cho durable write.
+* [x] Định nghĩa batch manifest.
+* [x] Ghi source topic.
+* [x] Ghi partition.
+* [x] Ghi first offset.
+* [x] Ghi last offset.
+* [x] Ghi record counts.
+* [x] Ghi data object path.
+* [x] Ghi checksum.
+* [x] Ghi processing timestamp.
+* [x] Upload manifest lên MinIO.
+* [x] Chỉ commit offset sau Parquet upload.
+* [x] Chỉ commit offset sau manifest upload.
+* [x] Xử lý retry khi commit lỗi.
+* [x] Kiểm tra idempotent object path.
+* [x] Viết integration test cho durable write.
 
 ---
 
