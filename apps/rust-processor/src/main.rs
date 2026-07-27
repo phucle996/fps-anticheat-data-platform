@@ -1,4 +1,5 @@
-use rust_processor::{Config, KafkaConsumer, Result};
+use rust_processor::{BatchAccumulator, BatchAccumulatorConfig, Config, KafkaConsumer, Result};
+use std::time::Duration;
 use tracing::{info, warn};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
@@ -13,7 +14,7 @@ async fn main() -> Result<()> {
 		.with(json_formatting)
 		.init();
 
-	info!("Khởi động tiến trình Rust Stream Processor Engine (Phase 12 Kafka Consumer Active)...");
+	info!("Khởi động tiến trình Rust Stream Processor Engine (Phase 13 Batch Accumulator Active)...");
 
 	// 2. Nạp cấu hình ứng dụng từ biến môi trường (Fail-Close 100%)
 	let config = match Config::from_env() {
@@ -30,6 +31,8 @@ async fn main() -> Result<()> {
 		group_id = %config.kafka_group_id,
 		minio_endpoint = %config.minio_endpoint,
 		minio_bucket = %config.minio_bucket,
+		batch_size = config.batch_size,
+		flush_interval_ms = config.flush_interval_ms,
 		"Đã khởi tạo thành công cấu hình Rust Processor"
 	);
 
@@ -37,24 +40,42 @@ async fn main() -> Result<()> {
 	let consumer = KafkaConsumer::new(&config)?;
 	info!("KafkaConsumer đã sẵn sàng nhận luồng sự kiện từ Kafka Topic: {}", config.kafka_raw_topic);
 
-	info!("Bắt đầu vòng lặp Consumer Loop (At-Least-Once Active)...");
+	// 4. Khởi tạo BatchAccumulator gom tụ dữ liệu RAM
+	let accum_config = BatchAccumulatorConfig {
+		max_records: config.batch_size,
+		max_bytes: 10 * 1024 * 1024,
+		flush_interval: Duration::from_millis(config.flush_interval_ms),
+	};
+	let mut accumulator = BatchAccumulator::new(accum_config);
+
+	info!("Bắt đầu vòng lặp Consumer Loop (Batch Accumulator Active)...");
 	loop {
 		tokio::select! {
 			_ = tokio::signal::ctrl_c() => {
-				info!("Nhận tín hiệu Graceful Shutdown từ OS (Ctrl+C), dừng Consumer Loop...");
+				info!("Nhận tín hiệu Graceful Shutdown từ OS (Ctrl+C), thực thi Flush bộ đệm dư thừa...");
+				if let Some(final_batch) = accumulator.flush() {
+					info!(
+						batch_id = %final_batch.batch_id,
+						record_count = final_batch.record_count,
+						estimated_bytes = final_batch.estimated_bytes,
+						"Đã Flush thành công Batch cuối cùng khi Shutdown"
+					);
+				}
 				break;
 			}
 			msg_result = consumer.recv_message() => {
 				match msg_result {
 					Ok(Some(msg)) => {
-						info!(
-							event_id = %msg.envelope.event_id,
-							match_id = %msg.envelope.match_id,
-							player_id = %msg.envelope.player_id,
-							partition = msg.partition,
-							offset = msg.offset,
-							"Đã nhận và giải mã JSON Event Envelope thành công từ Kafka"
-						);
+						// Đưa tin nhắn vào BatchAccumulator
+						if let Some(completed_batch) = accumulator.push(msg) {
+							info!(
+								batch_id = %completed_batch.batch_id,
+								record_count = completed_batch.record_count,
+								estimated_bytes = completed_batch.estimated_bytes,
+								partitions = ?completed_batch.partition_offsets,
+								"Đã đóng gói thành công CompletedBatch (Sẵn sàng cho Arrow & Parquet Conversion)"
+							);
+						}
 					}
 					Ok(None) => {
 						// Bỏ qua tin nhắn rỗng hoặc malformed JSON
@@ -63,6 +84,19 @@ async fn main() -> Result<()> {
 						warn!(error = %err, "Lỗi khi nhận tin nhắn Kafka (Fail-Close Pending)");
 					}
 				}
+			}
+		}
+
+		// Kiểm tra Timer Flush nếu đến nhịp flush_interval_ms
+		if accumulator.should_flush_timer() {
+			if let Some(completed_batch) = accumulator.flush() {
+				info!(
+					batch_id = %completed_batch.batch_id,
+					record_count = completed_batch.record_count,
+					estimated_bytes = completed_batch.estimated_bytes,
+					partitions = ?completed_batch.partition_offsets,
+					"Đã Trigger Flush CompletedBatch thành công theo Timer Interval"
+				);
 			}
 		}
 	}

@@ -268,19 +268,19 @@
 
 ## Phase 13 — Rust Batch Accumulator
 
-* [ ] Tạo accumulator.
-* [ ] Gom event theo partition.
-* [ ] Theo dõi first offset.
-* [ ] Theo dõi last offset.
-* [ ] Theo dõi record count.
-* [ ] Theo dõi estimated bytes.
-* [ ] Flush theo timer.
-* [ ] Flush theo record count.
-* [ ] Flush theo batch bytes.
-* [ ] Flush khi partition revoke.
-* [ ] Flush khi shutdown.
-* [ ] Tạo batch ID.
-* [ ] Viết unit test cho accumulator.
+* [x] Tạo accumulator.
+* [x] Gom event theo partition.
+* [x] Theo dõi first offset.
+* [x] Theo dõi last offset.
+* [x] Theo dõi record count.
+* [x] Theo dõi estimated bytes.
+* [x] Flush theo timer.
+* [x] Flush theo record count.
+* [x] Flush theo batch bytes.
+* [x] Flush khi partition revoke.
+* [x] Flush khi shutdown.
+* [x] Tạo batch ID.
+* [x] Viết unit test cho accumulator.
 
 ---
 
