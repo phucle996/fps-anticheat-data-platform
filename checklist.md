@@ -105,6 +105,7 @@
 * [x] Xử lý malformed CSV row.
 * [x] Tạo sample CSV.
 * [x] Viết unit test cho parser.
+* [x] Tổ chức tập trung unit tests & testdata vào sub-package folder (`internal/parser/csv/tests/`).
 
 ---
 
