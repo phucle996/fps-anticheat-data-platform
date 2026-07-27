@@ -96,13 +96,13 @@
 
 ---
 
-## 🔄 Dynamic Unbounded Worker Allocation & Resource Circuit Breaker
+## 🔄 Dynamic Unbounded Worker Allocation & Hysteresis Circuit Breaker
 
-Hệ thống kết hợp cơ chế **Unbounded Task-Driven Worker Allocation** (`src/worker/dynamic_pool.rs`) cùng **Resource-Driven Hysteresis Circuit Breaker** (`src/worker/circuit_breaker.rs`) đọc tài nguyên real-time từ Linux `/proc/stat` & `/proc/meminfo`:
+Hệ thống kết hợp cơ chế **Spark-Style Warm Worker Daemon Pool** (`src/worker/dynamic_pool.rs`) cùng **Resource-Driven Hysteresis Circuit Breaker** (`src/worker/circuit_breaker.rs`) đọc tài nguyên real-time từ Linux `/proc/stat` & `/proc/meminfo`:
 
 ```text
 +---------------------------------------------------------------------------------------------------------+
-|                  UNBOUNDED DYNAMIC WORKER ALLOCATION & HYSTERESIS CIRCUIT BREAKER FLOW                  |
+|        SPARK-STYLE WARM WORKER DAEMON & HYSTERESIS CIRCUIT BREAKER FLOW (5s IDLE KEEP-ALIVE)            |
 +---------------------------------------------------------------------------------------------------------+
 
                               Kafka Consumer Raw Stream (pubg.v1.player-stat.raw)
@@ -142,45 +142,37 @@ Hệ thống kết hợp cơ chế **Unbounded Task-Driven Worker Allocation** (
                    |                         |                         |
                    v                         v                         v
        +-----------------------+ +-----------------------+ +-----------------------+
-       | Async R Worker Task 1 | | Async R Worker Task 2 | | Async R Worker Task N |
-       | (tokio::spawn Task)   | | (tokio::spawn Task)   | | (Unbounded Scaling)   |
+       | R Worker Daemon Task 1| | R Worker Daemon Task 2| | R Worker Daemon Task N|
+       | (Pre-loaded R Libs)   | | (Pre-loaded R Libs)   | | (Unbounded Scaling)   |
        +-----------------------+ +-----------------------+ +-----------------------+
                    |                         |                         |
                    v                         v                         v
        +---------------------------------------------------------------------------+
-       | Executing Subprocess: Rscript run_batch.R --manifest <manifest_path.json> |
-       | (Chạy độc lập 1 OS Process cách ly hoàn toàn với luồng chính Ingestor)    |
-       +---------------------------------------------------------------------------+
-                                             |
-                                             | (Phân tích Silver/Gold hoàn tất -> Subprocess Exit 0)
-                                             v
-       +---------------------------------------------------------------------------+
-       | OS Kernel Auto Memory Reclamation (Thu hồi 100% RAM, Zero Memory Leak)    |
+       | Executing Subprocess: daemon_worker.R (GIỮ LẠI TRONG RAM đệm chu kỳ)     |
+       | - Có Batch mới (trong 5s) ──► Nhận & xử lý ngay tức thì (0ms Delay)       |
+       | - Hết 5s Idle Timeout     ──► Subprocess Exit 0 -> OS Reclaim 100% RAM    |
        +---------------------------------------------------------------------------+
 ```
 
-### 🧠 Giải Thích Chi Tiết Cơ Chế Hoạt Động Hợp Nhất:
+### 🧠 Giải Thích Chi Tiết Cơ Chế Warm Worker Daemon & Vòng Đời Bộ Nhớ:
 
-1. **Gom Batch Qua 3 Ngưỡng Kích Hoạt Song Song (`Ingest Accumulator`)**:
-   - `Record Count`: Ngay khi đệm đủ `BATCH_SIZE` (1,000 bản ghi).
-   - `Byte Size`: Khi tổng dung lượng byte chạm `MAX_BATCH_BYTES` (5 MB).
-   - `Time-based Flush`: Mỗi khoảng `FLUSH_INTERVAL_MS` (1,000ms timer) tự động xả đệm đọng.
-2. **Unbounded Task-Driven Worker Spawning (`src/worker/dynamic_pool.rs`)**:
-   - Khi batch hình thành và xuất Parquet + Manifest JSON lên MinIO S3 thành công, `RDynamicWorkerPool` tự động tạo (`tokio::spawn`) 1 worker bất đồng bộ song song kích hoạt tiến trình `Rscript`.
-   - Tiến trình `Rscript` chạy cách ly hoàn toàn dưới dạng OS Subprocess độc lập.
-3. **Resource-Driven Circuit Breaker (`src/worker/circuit_breaker.rs`)**:
-   - **High Watermark (Tripped to `OPEN`)**: Khi CPU $\ge$ 80% hoặc RAM $\ge$ 85%, hệ thống chuyển sang `OPEN` tạm ngắt spawn worker mới để bảo vệ luồng nạp dữ liệu thô.
-   - **Low Watermark & Hysteresis Gap (Recovered to `CLOSED`)**: Chỉ phục hồi về `CLOSED` cho phép spawn worker khi CPU $\le$ 75% VÀ RAM $\le$ 80% để tránh Flapping.
+1. **Warm Worker Daemon Keep-Alive (`5s Idle Timeout`)**:
+   - Khi có batch mới, `RDynamicWorkerPool` khởi tạo tiến trình `daemon_worker.R` đã nạp sẵn (pre-load) các thư viện R heavy packages vào bộ nhớ RAM.
+   - Sau khi xử lý xong batch hiện tại, tiến trình R **KHÔNG tự hủy ngay lập tức**, mà được **GIỮ LẠI TRONG RAM** trong khoảng thời gian chờ `IDLE_TIMEOUT_SEC = 5s` (tương đương 1-2 chu kỳ batch tiếp theo).
+   - Nếu có batch mới chảy vào trong vòng 5 giây, worker nhận nhiệm vụ và thực thi ngay tức thì với độ trễ khởi động bằng **0ms (Zero Startup Delay)**.
+2. **Thu Hồi RAM Tự Động Khi Hết Dữ Liệu (`Auto Shutdown on Idle`)**:
+   - Nếu sau 5 giây ngưng có dữ liệu thô (Idle Status), `daemon_worker.R` sẽ tự động thoát ngắt (`quit(status=0)`).
+   - **Linux OS Kernel lập tức thu hồi 100% RAM**, đưa tài nguyên bộ nhớ về trạng thái giải phóng hoàn toàn, triệt tiêu nguy cơ rò rỉ bộ nhớ (Zero Memory Leak).
 
 ---
 
-### ⏱️ Chi Tiết Vòng Đời Bộ Nhớ: Khi Nào GIỮ LẠI (Retain) & Khi Nào THU HỒI (Reclaim)?
+### ⏱️ Bảng Chi Tiết Vòng Đời Bộ Nhớ RAM:
 
 | Giai Đoạn | Khi Nào GIỮ LẠI (Retain Memory) | Khi Nào THU HỒI (Reclaim / Free Memory) |
 | :--- | :--- | :--- |
-| **RAM Batch Accumulator** | Dữ liệu events được **GIỮ LẠI trong đệm RAM** suốt quá trình stream cho đến khi chạm 1 trong 3 ngưỡng kích hoạt (`BATCH_SIZE`, `MAX_BATCH_BYTES`, `FLUSH_INTERVAL_MS`). | Ngay khi đệm được nén Parquet + Manifest JSON và upload 2PC lên MinIO S3 thành công, **bộ đệm RAM của batch đó được xóa hoàn toàn (`clear()`)**. |
-| **Kafka Offset Tracker** | Offset state & Partition tracking được **GIỮ LẠI trong RAM** để kiểm soát tính toàn vẹn dữ liệu. | Ngay sau khi Two-Phase Commit (2PC) thành công 100%, offset được commit lên Kafka Broker và giải phóng khỏi bộ đệm offset cũ. |
-| **Rscript Subprocess Worker** | Khi Rscript đang thực thi tính toán Silver/Gold (`run_batch.R`), bộ nhớ RAM cấp riêng cho tiến trình R được **GIỮ LẠI**. | Ngay khi Rscript hoàn tất công việc và thoát (`Subprocess Exit 0`), **Linux OS Kernel lập tức thu hồi 100% bộ nhớ RAM**, đảm bảo **Zero Memory Leak**. |
+| **RAM Batch Accumulator** | Dữ liệu events thô được **GIỮ LẠI trong đệm RAM** suốt quá trình stream cho đến khi chạm 1 trong 3 ngưỡng kích hoạt (`BATCH_SIZE`, `MAX_BATCH_BYTES`, `FLUSH_INTERVAL_MS`). | Ngay khi đệm nén Parquet + Manifest JSON và upload 2PC thành công lên MinIO S3, **bộ đệm RAM của batch đó được xóa sạch hoàn toàn (`clear()`)**. |
+| **Kafka Offset Tracker** | Offset state & Partition tracking được **GIỮ LẠI trong RAM** để kiểm soát tính toàn vẹn dữ liệu. | Ngay sau khi Two-Phase Commit (2PC) thành công 100%, offset được commit lên Kafka Broker và giải phóng khỏi bộ nhớ đệm offset cũ. |
+| **R Worker Daemon Process** | Bộ nhớ RAM và các thư viện R pre-loaded được **GIỮ LẠI TRONG RAM trong vòng 5 giây (Keep-Alive)** để chờ các batch mới tới kế tiếp với độ trễ 0ms. | Nếu quá **5 giây (5s Idle Timeout)** không có batch mới chảy vào, tiến trình tự đóng (`Exit 0`) và **Linux OS Kernel thu hồi 100% RAM**. |
 
 ---
 
