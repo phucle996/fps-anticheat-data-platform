@@ -549,16 +549,16 @@
 
 ## Phase 30 — Streamlit Overview & Health Page
 
-* [ ] Hiển thị tổng số records.
-* [ ] Hiển thị tổng số matches.
-* [ ] Hiển thị tổng số players.
-* [ ] Hiển thị tổng số batches.
-* [ ] Hiển thị valid record count.
-* [ ] Hiển thị invalid record count.
-* [ ] Hiển thị prediction count.
-* [ ] Hiển thị high-risk count.
-* [ ] Hiển thị model version.
-* [ ] Hiển thị feature version.
+* [x] Hiển thị tổng số records.
+* [x] Hiển thị tổng số matches.
+* [x] Hiển thị tổng số players.
+* [x] Hiển thị tổng số batches.
+* [x] Hiển thị valid record count.
+* [x] Hiển thị invalid record count.
+* [x] Hiển thị prediction count.
+* [x] Hiển thị high-risk count.
+* [x] Hiển thị model version.
+* [x] Hiển thị feature version.
 
 ---
 

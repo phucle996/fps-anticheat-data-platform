@@ -1,7 +1,7 @@
-import os
 import streamlit as st
 from src.config import DashboardConfig
 from src.services.api_client import APIClient
+from src.views.overview import render_overview_page
 
 # Cấu hình Trang Streamlit & Theme Cyberpunk Dark Mode
 st.set_page_config(
@@ -80,16 +80,7 @@ st.sidebar.caption("⚡ FPS Anti-Cheat Data Platform v1.0")
 
 # 3. Router nội dung trang
 if page == "📊 Overview & Pipeline Health":
-    st.title("📊 Overview & Pipeline Health Monitor")
-    st.markdown("<div class='glass-card'>Trang tổng quan đo lường hiệu năng và sức khỏe hệ thống đường ống dữ liệu (Pipeline Health).</div>", unsafe_allow_html=True)
-    
-    col1, col2, col3, col4 = st.columns(4)
-    summary = api_client.get_dataset_summary()
-    
-    col1.metric("Tổng bản ghi thô (Raw)", f"{summary.get('total_raw_records', 0):,}")
-    col2.metric("Bản ghi sạch (Silver)", f"{summary.get('clean_silver_records', 0):,}")
-    col3.metric("Bản ghi không hợp lệ (Invalid)", f"{summary.get('invalid_records', 0):,}", delta="-1.5%", delta_color="inverse")
-    col4.metric("Gold Features Version", summary.get("feature_version", "v1.0"))
+    render_overview_page(api_client)
 
 elif page == "🧹 Preprocessing Before vs After":
     st.title("🧹 Preprocessing Before vs After Explorer")

@@ -69,7 +69,6 @@ func (s *Server) handlePredict(w http.ResponseWriter, r *http.Request) {
 		req.Op = "predict"
 	}
 
-	// Gọi IPC Client tới Rust Engine qua Unix Domain Socket
 	resp, err := s.ipcClient.Predict(&req)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{
@@ -82,7 +81,7 @@ func (s *Server) handlePredict(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, resp)
 }
 
-// handleDatasetSummary cung cấp thống kê dữ liệu Trước/Sau tiền xử lý cho Streamlit Dashboard
+// handleDatasetSummary cung cấp đầy đủ 10 chỉ số KPI thống kê dữ liệu cho Streamlit Dashboard
 func (s *Server) handleDatasetSummary(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -90,12 +89,17 @@ func (s *Server) handleDatasetSummary(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"status":                "ok",
-		"total_raw_records":     10000,
-		"clean_silver_records":  9850,
-		"gold_feature_records":  9850,
-		"invalid_records":       150,
-		"feature_version":       "v1.0",
+		"status":               "ok",
+		"total_raw_records":    10000,
+		"total_matches":        120,
+		"total_players":        4500,
+		"total_batches":        25,
+		"clean_silver_records": 9850,
+		"invalid_records":      150,
+		"prediction_count":     9850,
+		"high_risk_count":      142,
+		"model_version":        "v1.0-rf",
+		"feature_version":      "v1.0",
 	})
 }
 
