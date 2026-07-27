@@ -92,19 +92,19 @@
 
 ## Phase 5 — Go CSV Parser
 
-* [ ] Tạo parser interface.
-* [ ] Tạo CSV parser implementation.
-* [ ] Đọc CSV header.
-* [ ] Đọc CSV theo streaming.
-* [ ] Không load toàn bộ file vào RAM.
-* [ ] Tạo raw record struct.
-* [ ] Tạo column mapping.
-* [ ] Gắn source file.
-* [ ] Gắn record index.
-* [ ] Xử lý empty row.
-* [ ] Xử lý malformed CSV row.
-* [ ] Tạo sample CSV.
-* [ ] Viết unit test cho parser.
+* [x] Tạo parser interface.
+* [x] Tạo CSV parser implementation.
+* [x] Đọc CSV header.
+* [x] Đọc CSV theo streaming.
+* [x] Không load toàn bộ file vào RAM.
+* [x] Tạo raw record struct.
+* [x] Tạo column mapping.
+* [x] Gắn source file.
+* [x] Gắn record index.
+* [x] Xử lý empty row.
+* [x] Xử lý malformed CSV row.
+* [x] Tạo sample CSV.
+* [x] Viết unit test cho parser.
 
 ---
 

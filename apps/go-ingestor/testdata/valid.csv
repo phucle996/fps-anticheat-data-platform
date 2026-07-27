@@ -1,0 +1,4 @@
+Id,groupId,matchId,kills,damageDealt,headshotKills,walkDistance,rideDistance,swimDistance,matchDuration,winPlacePerc
+player-001,group-10,match-100,5,550.5,2,1200.0,0.0,0.0,900.0,0.85
+player-002,group-10,match-100,2,210.0,0,850.5,0.0,0.0,900.0,0.85
+player-003,group-11,match-100,0,45.0,0,300.0,0.0,0.0,400.0,0.20
