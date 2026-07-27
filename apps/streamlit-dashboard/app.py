@@ -4,6 +4,7 @@ from src.services.api_client import APIClient
 from src.services.s3_client import S3DataClient
 from src.views.overview import render_overview_page
 from src.views.preprocessing import render_preprocessing_page
+from src.views.player_analysis import render_player_analysis_page
 
 # Cấu hình Trang Streamlit & Theme Cyberpunk Dark Mode
 st.set_page_config(
@@ -89,8 +90,7 @@ elif page == "🧹 Preprocessing Before vs After":
     render_preprocessing_page(api_client, s3_client)
 
 elif page == "👤 Player Analysis & Lobby Comparison":
-    st.title("👤 Player Analysis & Lobby Comparison")
-    st.info("Phân tích chi tiết chỉ số gian lận người chơi và so sánh vị thế với Lobby.")
+    render_player_analysis_page(api_client, s3_client)
 
 elif page == "🎯 Risk Analysis & Prediction Explorer":
     st.title("🎯 Risk Analysis & Prediction Explorer")

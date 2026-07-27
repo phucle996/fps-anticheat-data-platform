@@ -576,12 +576,12 @@
 
 ## Phase 32 — Streamlit Player Analysis Page
 
-* [ ] Tạo player selector.
-* [ ] Hiển thị match history.
-* [ ] Hiển thị kills, damage, headshot ratio, movement.
-* [ ] So sánh chỉ số người chơi với trung bình Lobby.
-* [ ] Hiển thị risk score.
-* [ ] Hiển thị prediction evidence.
+* [x] Tạo player selector.
+* [x] Hiển thị match history.
+* [x] Hiển thị kills, damage, headshot ratio, movement.
+* [x] So sánh chỉ số người chơi với trung bình Lobby.
+* [x] Hiển thị risk score.
+* [x] Hiển thị prediction evidence.
 
 ---
 
