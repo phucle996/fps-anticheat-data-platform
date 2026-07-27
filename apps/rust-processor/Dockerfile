@@ -1,6 +1,6 @@
 # Multi-Stage Dockerfile cho Rust Stream Processor Engine (Cloud-Native Non-Root Security)
 # Stage 1: Build binary bằng Rust Toolchain chính thức
-FROM rust:1.78-slim-bookworm AS builder
+FROM rust:1.85-slim-bookworm AS builder
 
 # Cài đặt các gói phụ thuộc hệ thống cần thiết (pkg-config, libssl-dev, cmake cho rdkafka)
 RUN apt-get update && apt-get install -y --no-install-recommends \

@@ -6,7 +6,7 @@
 # ------------------------------------------
 # Stage 1: Build Stage (Biên dịch Go Binary)
 # ------------------------------------------
-FROM golang:1.22-alpine AS builder
+FROM golang:1.23-alpine AS builder
 
 # Cài đặt ca-certificates để tải HTTPS an toàn
 RUN apk add --no-cache ca-certificates git
