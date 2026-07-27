@@ -176,6 +176,10 @@
 * [x] Đóng producer khi shutdown.
 * [x] Viết Kafka integration test.
 
+### Phase 8 FIX bổ sung
+* [x] Áp dụng nguyên tắc Fail-Close / Fail-Fast 100% cho cấu hình (Zero Fallback).
+* [x] Chuyển toàn bộ trách nhiệm validate tham số nil/rỗng về duy nhất lớp Thượng nguồn (Transport Config Layer), hạ nguồn không re-validate trùng lặp.
+
 ---
 
 ## Phase 9 — Go Micro-Batching
