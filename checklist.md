@@ -492,27 +492,31 @@
 
 ---
 
-## Phase 25 — Rust ONNX Inference Engine và Hot Swap
+## Phase 25 — Dedicated Rust Inference Service và Unix Domain Socket IPC
 
-* [ ] Tích hợp ONNX Runtime (`ort` crate) vào Rust Processor.
+* [ ] Khởi tạo dịch vụ Rust Inference độc lập (`apps/rust-inference`).
+* [ ] Tích hợp ONNX Runtime C-bindings (`ort` crate) vào `rust-inference`.
 * [ ] Subscribe Kafka event `pubg.v1.ml.model.ready`.
-* [ ] Tải và verify checksum ONNX Model Bundle từ MinIO S3.
+* [ ] Tải và verify checksum ONNX Model Bundle từ MinIO S3 (`s3://pubg-models/`).
 * [ ] Atomic Hot-Swap mô hình ONNX trong RAM (Zero Downtime).
-* [ ] Chạy Tensor Inference cho Batch và Real-time payload.
+* [ ] Thiết lập Unix Domain Socket Listener (`/tmp/rust_inference.sock`) phục vụ IPC siêu tốc với Go API.
+* [ ] Chạy Tensor Inference cho Batch và Real-time payload qua UDS IPC.
 * [ ] Chuẩn hóa Anomaly Risk Score (0.0 - 1.0) và gán nhãn Risk Level.
 * [ ] Ghi kết quả Predictions Parquet lên MinIO `s3://pubg-predictions/`.
 * [ ] Publish Kafka event `pubg.v1.ml.inference.completed`.
-* [ ] Viết test cho Rust ONNX Inference Engine.
+* [ ] Viết unit test cho Rust Inference Service.
 
 ---
 
-## Phase 26 — Prediction Evidence và Model Parity Test
+## Phase 26 — Go API Gateway và Prediction Evidence Matrix
 
+* [ ] Xây dựng Go API Gateway HTTP REST Endpoints (Proxy real-time inference request & status).
+* [ ] Kết nối Unix Domain Socket IPC client (`/tmp/rust_inference.sock`) từ Go tới Rust Inference.
 * [ ] Viết Model Parity Test (Xác nhận Python ONNX Runtime output ≈ Rust ONNX Runtime output ≤ 1e-5).
 * [ ] Tính toán Robust Z-Score và Feature Percentile so với trung bình Lobby.
 * [ ] Trích xuất Top Evidence Features nghi vấn gian lận cho từng player.
-* [ ] Đóng gói Weak-label Risk Score và Evidence Matrix vào Prediction Output.
-* [ ] Viết test cho Evidence Generation.
+* [ ] Đóng gói Weak-label Risk Score và Evidence Matrix vào Prediction Response.
+* [ ] Viết integration test cho Go API Gateway & Evidence Generation.
 
 ---
 
