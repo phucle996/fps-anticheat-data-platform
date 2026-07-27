@@ -540,10 +540,10 @@
 
 ## Phase 29 — Streamlit Dashboard Foundation (`apps/streamlit-dashboard`)
 
-* [ ] Khởi tạo Streamlit Application (`apps/streamlit-dashboard`).
-* [ ] Cấu hình kết nối MinIO S3 Data Lake & Go API Gateway.
-* [ ] Tạo navigation layout đa trang và Dockerfile cho Streamlit.
-* [ ] Bổ sung `streamlit-dashboard` vào Docker Compose.
+* [x] Khởi tạo Streamlit Application (`apps/streamlit-dashboard`).
+* [x] Cấu hình kết nối MinIO S3 Data Lake & Go API Gateway.
+* [x] Tạo navigation layout đa trang và Dockerfile cho Streamlit.
+* [x] Bổ sung `streamlit-dashboard` vào Docker Compose.
 
 ---
 

@@ -153,7 +153,7 @@ services:
   # ------------------------------------------
   python-ml-worker:
     build:
-      context: ../../apps/python-ml-worker
+      context: ../../apps/ml-platform/python-ml-worker
       dockerfile: Dockerfile
     container_name: pubg-python-ml-worker
     restart: unless-stopped
@@ -173,6 +173,31 @@ services:
       - MINIO_SECRET_KEY=minioadmin
     networks:
       - pubg-platform-net
+
+  # ------------------------------------------
+  # 7. Streamlit Web Dashboard (Port 8501)
+  # ------------------------------------------
+  streamlit-dashboard:
+    build:
+      context: ../../apps/streamlit-dashboard
+      dockerfile: Dockerfile
+    container_name: pubg-streamlit-dashboard
+    restart: unless-stopped
+    ports:
+      - "8501:8501"
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      - GO_API_URL=http://localhost:8081
+      - MINIO_ENDPOINT=http://minio:9000
+      - MINIO_BUCKET_DATA=fps-anticheat-datalake
+      - MINIO_ACCESS_KEY=minioadmin
+      - MINIO_SECRET_KEY=minioadmin
+    networks:
+      - pubg-platform-net
+
+
 
 # ------------------------------------------
 # Docker Networks & Volumes Definition
