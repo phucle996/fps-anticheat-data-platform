@@ -627,12 +627,13 @@
 
 ---
 
-## Phase 36 — Logging, Documentation và Demo Setup
+## Phase 36 — Documentation Completion & Docker Container Integration Test Suite
 
-* [ ] Chuẩn hóa log format và OTel log routing.
-* [ ] Hoàn thiện architecture document & data dictionary.
-* [ ] Tạo demo sample dataset và `make demo` command.
-* [ ] Chuẩn bị screenshots và video demo dự phòng.
+### Hoàn thiện tài liệu kiến trúc và viết bộ test case kiểm thử tích hợp trên Docker Container
+* [ ] Hoàn thiện tài liệu kiến trúc tổng thể (Architecture Document & Data Dictionary).
+* [ ] Cập nhật toàn bộ các file README và God View SOT documents làm chuẩn tham chiếu.
+* [ ] Viết bộ test case kiểm thử tích hợp tự động trên Docker Container environment.
+* [ ] Viết script kiểm thử xác minh tính sẵn sàng và giao tiếp end-to-end của tất cả các container service.
 
 ---
 
