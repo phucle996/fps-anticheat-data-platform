@@ -475,78 +475,57 @@
 
 ---
 
-## Phase 24 — R Model Training
+## Phase 24 — Python ML Worker Training và ONNX Export
 
-* [ ] Đọc Gold feature dataset.
-* [ ] Chọn model features.
-* [ ] Validate feature schema.
-* [ ] Xử lý missing values.
-* [ ] Scale feature nếu cần.
-* [ ] Train Isolation Forest.
-* [ ] Tạo anomaly score cho training data.
-* [ ] Kiểm tra score distribution.
-* [ ] Chọn risk thresholds.
-* [ ] Lưu `model.rds`.
-* [ ] Tạo model version.
-* [ ] Tạo model manifest.
-* [ ] Lưu feature schema.
-* [ ] Lưu training metrics.
-* [ ] Upload artifacts lên MinIO.
-* [ ] Viết model loading test.
+* [ ] Khởi tạo ứng dụng Python ML Worker (`apps/python-ml-worker`).
+* [ ] Subscribe Kafka event `pubg.v1.dataset.gold.ready`.
+* [ ] Nạp Gold Feature Parquet từ MinIO S3.
+* [ ] Chia tập Train/Validation/Test (Group split theo `match_id` / `player_id_hash`).
+* [ ] Train mô hình Logistic Regression làm baseline.
+* [ ] Train mô hình Random Forest & HistGradientBoosting.
+* [ ] Train mô hình Unsupervised Isolation Forest.
+* [ ] Đánh giá mô hình theo PR-AUC, Precision, Recall, F1-Score.
+* [ ] Đóng gói ONNX Model Bundle (`model.onnx`, `feature_schema.json`, `threshold_policy.json`).
+* [ ] Upload ONNX Model Bundle lên MinIO `s3://pubg-models/`.
+* [ ] Publish Kafka event `pubg.v1.ml.model.ready`.
+* [ ] Viết unit test cho Python ML Training & ONNX Export.
 
 ---
 
-## Phase 25 — R Model Scoring
+## Phase 25 — Rust ONNX Inference Engine và Hot Swap
 
-* [ ] Đọc model artifact.
-* [ ] Đọc model manifest.
-* [ ] Đọc feature schema.
-* [ ] Đọc Gold feature dataset.
-* [ ] Kiểm tra feature compatibility.
-* [ ] Chạy anomaly scoring.
-* [ ] Chuẩn hóa score về khoảng 0–1.
-* [ ] Gán risk level.
-* [ ] Tạo prediction ID.
-* [ ] Gắn model version.
-* [ ] Gắn feature version.
-* [ ] Gắn scoring timestamp.
-* [ ] Ghi Predictions Parquet.
-* [ ] Upload predictions lên MinIO.
-* [ ] Viết scoring test.
+* [ ] Tích hợp ONNX Runtime (`ort` crate) vào Rust Processor.
+* [ ] Subscribe Kafka event `pubg.v1.ml.model.ready`.
+* [ ] Tải và verify checksum ONNX Model Bundle từ MinIO S3.
+* [ ] Atomic Hot-Swap mô hình ONNX trong RAM (Zero Downtime).
+* [ ] Chạy Tensor Inference cho Batch và Real-time payload.
+* [ ] Chuẩn hóa Anomaly Risk Score (0.0 - 1.0) và gán nhãn Risk Level.
+* [ ] Ghi kết quả Predictions Parquet lên MinIO `s3://pubg-predictions/`.
+* [ ] Publish Kafka event `pubg.v1.ml.inference.completed`.
+* [ ] Viết test cho Rust ONNX Inference Engine.
 
 ---
 
-## Phase 26 — Prediction Evidence
+## Phase 26 — Prediction Evidence và Model Parity Test
 
-* [ ] Tính feature median.
-* [ ] Tính feature percentile.
-* [ ] Tính robust z-score.
-* [ ] So sánh player với lobby.
-* [ ] Xác định feature bất thường nhất.
-* [ ] Chọn top evidence features.
-* [ ] Ghi player feature value.
-* [ ] Ghi reference value.
-* [ ] Gán contribution level.
-* [ ] Gắn evidence vào prediction.
-* [ ] Viết test cho evidence generation.
+* [ ] Viết Model Parity Test (Xác nhận Python ONNX Runtime output ≈ Rust ONNX Runtime output ≤ 1e-5).
+* [ ] Tính toán Robust Z-Score và Feature Percentile so với trung bình Lobby.
+* [ ] Trích xuất Top Evidence Features nghi vấn gian lận cho từng player.
+* [ ] Đóng gói Weak-label Risk Score và Evidence Matrix vào Prediction Output.
+* [ ] Viết test cho Evidence Generation.
 
 ---
 
-## Phase 27 — Shiny Dashboard Foundation
+## Phase 27 — Streamlit Dashboard Foundation (Data Quality & Preprocessing Explorer)
 
-* [ ] Khởi tạo Shiny application.
-* [ ] Tạo configuration.
-* [ ] Tạo MinIO connection.
-* [ ] Tạo data loader.
-* [ ] Đọc Silver data.
-* [ ] Đọc Gold data.
-* [ ] Đọc predictions.
-* [ ] Đọc model manifest.
-* [ ] Tạo navigation layout.
-* [ ] Tạo error state.
-* [ ] Tạo loading state.
-* [ ] Tạo Dockerfile.
-* [ ] Thêm dashboard vào Docker Compose.
+* [ ] Khởi tạo Streamlit Application (`apps/streamlit-dashboard`).
+* [ ] Cấu hình kết nối MinIO S3 Data Lake & Kafka logs.
+* [ ] Xây dựng Page 1: Overview & Pipeline Health Monitor.
+* [ ] Xây dựng Page 2: Preprocessing Before & After Interactive Explorer (So sánh màng lọc dữ liệu 1-1).
+* [ ] Xây dựng Page 3: Silver & Gold Interactive DataFrames Explorer (Lọc, tra cứu, xem chi tiết).
+* [ ] Xây dựng Page 4: ML Verification & Prediction Risk Score Visualizer.
+* [ ] Tạo Dockerfile cho Streamlit Dashboard.
+* [ ] Bổ sung `streamlit-dashboard` vào Docker Compose.
 
 ---
 
