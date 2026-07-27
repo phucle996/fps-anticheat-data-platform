@@ -4,7 +4,7 @@
 # ==========================================
 
 # Khai báo các phony target không liên quan tới file vật lý
-.PHONY: help init fmt test clean lint check-deps
+.PHONY: help init fmt test clean lint check-deps up down logs
 
 # Target mặc định khi chỉ gõ `make`
 .DEFAULT_GOAL := help
@@ -62,3 +62,18 @@ clean:
 	@rm -rf bin/ target/ tmp/ *.log
 	@find . -name "*.tmp" -type f -delete
 	@echo "  - Đã hoàn tất dọn dẹp."
+
+## up: Khởi chạy hạ tầng Kafka & MinIO qua Docker Compose
+up:
+	@echo "[+] Khởi chạy hạ tầng Kafka & MinIO Container..."
+	docker compose up -d
+
+## down: Dừng và giải phóng toàn bộ hạ tầng Docker Compose
+down:
+	@echo "[+] Dừng và giải phóng các container hạ tầng..."
+	docker compose down
+
+## logs: Theo dõi log thời gian thực từ các container hạ tầng
+logs:
+	docker compose logs -f
+

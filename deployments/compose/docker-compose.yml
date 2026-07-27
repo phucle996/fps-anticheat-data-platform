@@ -1,0 +1,123 @@
+# ==========================================
+# Docker Compose Infrastructure Configuration
+# PUBG Anti-Cheat Data Platform (Local/Dev)
+# ==========================================
+
+version: '3.8'
+
+# Định nghĩa các dịch vụ hạ tầng trung tâm
+services:
+  # ------------------------------------------
+  # 1. Kafka Message Broker (KRaft Mode)
+  # ------------------------------------------
+  kafka:
+    image: bitnami/kafka:3.7.0
+    container_name: pubg-kafka
+    restart: unless-stopped
+    ports:
+      # Port kết nối Client API từ ngoài host (localhost:9092)
+      - "9092:9092"
+    environment:
+      # Cấu hình Bitnami Kafka chạy KRaft (Không cần Zookeeper)
+      - KAFKA_CFG_NODE_ID=1
+      - KAFKA_CFG_PROCESS_ROLES=controller,broker
+      - KAFKA_CFG_CONTROLLER_QUORUM_VOTERS=1@kafka:9093
+      # Cấu hình Listeners cho kết nối nội bộ Docker network và bên ngoài Host
+      - KAFKA_CFG_LISTENERS=PLAINTEXT://:9092,CONTROLLER://:9093
+      - KAFKA_CFG_ADVERTISED_LISTENERS=PLAINTEXT://kafka:9092
+      - KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      - KAFKA_CFG_CONTROLLER_LISTENER_NAMES=CONTROLLER
+      - KAFKA_CFG_INTER_BROKER_LISTENER_NAME=PLAINTEXT
+      # Cấu hình Cluster ID mặc định
+      - KAFKA_KRAFT_CLUSTER_ID=pubg-anti-cheat-cluster-01
+    volumes:
+      # Volume bảo toàn dữ liệu message queue
+      - kafka_data:/bitnami/kafka
+    networks:
+      - pubg-platform-net
+    healthcheck:
+      # Kiểm tra Kafka sẵn sàng nhận kết nối
+      test: ["CMD-SHELL", "kafka-broker-api-versions.sh --bootstrap-server kafka:9092 > /dev/null 2>&1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  # ------------------------------------------
+  # 2. MinIO Object Storage (Data Lake S3)
+  # ------------------------------------------
+  minio:
+    image: minio/minio:RELEASE.2024-05-28T17-19-04Z
+    container_name: pubg-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    ports:
+      # Port S3 API Gateway (localhost:9000)
+      - "9000:9000"
+      # Port Web Console UI (localhost:9001)
+      - "9001:9001"
+    environment:
+      # Tài khoản root quản trị MinIO
+      - MINIO_ROOT_USER=minioadmin
+      - MINIO_ROOT_PASSWORD=minioadmin
+    volumes:
+      # Volume bảo toàn dữ liệu Data Lake Parquet/JSON
+      - minio_data:/data
+    networks:
+      - pubg-platform-net
+    healthcheck:
+      # Kiểm tra liveness endpoint của MinIO
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ------------------------------------------
+  # 3. Init Container: Kafka Topics Creator
+  # ------------------------------------------
+  init-kafka:
+    image: bitnami/kafka:3.7.0
+    container_name: pubg-init-kafka
+    depends_on:
+      kafka:
+        condition: service_healthy # Chỉ chạy sau khi Kafka đã healthy
+    volumes:
+      - ./init/create-topics.sh:/create-topics.sh:ro
+    entrypoint: ["/bin/bash", "/create-topics.sh", "kafka:9092"]
+    networks:
+      - pubg-platform-net
+
+  # ------------------------------------------
+  # 4. Init Container: MinIO Bucket Creator
+  # ------------------------------------------
+  init-minio:
+    image: minio/mc:RELEASE.2024-05-09T00-54-15Z
+    container_name: pubg-init-minio
+    depends_on:
+      minio:
+        condition: service_healthy # Chỉ chạy sau khi MinIO đã healthy
+    environment:
+      - MINIO_URL=http://minio:9000
+      - MINIO_ACCESS_KEY=minioadmin
+      - MINIO_SECRET_KEY=minioadmin
+      - MINIO_BUCKET=pubg-data
+    volumes:
+      - ./init/create-buckets.sh:/create-buckets.sh:ro
+    entrypoint: ["/bin/sh", "/create-buckets.sh"]
+    networks:
+      - pubg-platform-net
+
+# ------------------------------------------
+# Docker Networks & Volumes Definition
+# ------------------------------------------
+networks:
+  pubg-platform-net:
+    name: pubg-platform-net
+    driver: bridge
+
+volumes:
+  kafka_data:
+    name: pubg_kafka_data
+  minio_data:
+    name: pubg_minio_data

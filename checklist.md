@@ -20,21 +20,21 @@
 
 ## Phase 2 — Docker Compose Infrastructure
 
-* [ ] Tạo `docker-compose.yml`.
-* [ ] Thêm Kafka container.
-* [ ] Thêm MinIO container.
-* [ ] Thêm MinIO Console.
-* [ ] Tạo Docker network.
-* [ ] Tạo persistent volumes.
-* [ ] Thêm healthcheck cho Kafka.
-* [ ] Thêm healthcheck cho MinIO.
-* [ ] Tạo script khởi tạo Kafka topics.
-* [ ] Tạo topic `pubg.v1.player-stat.raw`.
-* [ ] Tạo topic `pubg.v1.invalid`.
-* [ ] Tạo script khởi tạo MinIO bucket.
-* [ ] Tạo bucket `pubg-data`.
-* [ ] Kiểm tra Kafka producer/consumer bằng CLI.
-* [ ] Kiểm tra upload/download object trên MinIO.
+* [x] Tạo `docker-compose.yml`.
+* [x] Thêm Kafka container.
+* [x] Thêm MinIO container.
+* [x] Thêm MinIO Console.
+* [x] Tạo Docker network.
+* [x] Tạo persistent volumes.
+* [x] Thêm healthcheck cho Kafka.
+* [x] Thêm healthcheck cho MinIO.
+* [x] Tạo script khởi tạo Kafka topics.
+* [x] Tạo topic `pubg.v1.player-stat.raw`.
+* [x] Tạo topic `pubg.v1.invalid`.
+* [x] Tạo script khởi tạo MinIO bucket.
+* [x] Tạo bucket `pubg-data`.
+* [x] Kiểm tra Kafka producer/consumer bằng CLI.
+* [x] Kiểm tra upload/download object trên MinIO.
 
 ---
 

@@ -1,0 +1,9 @@
+# ==========================================
+# Root Docker Compose Wrapper
+# PUBG Anti-Cheat Data Platform
+# ==========================================
+
+# File wrapper tại gốc dự án trỏ trực tiếp tới cấu hình chính
+# Giúp chạy `docker compose up -d` nhanh từ thư mục gốc
+include:
+  - deployments/compose/docker-compose.yml
