@@ -82,11 +82,11 @@
 * [x] Thêm structured JSON logging.
 * [x] Dockerize `dataset-sync`.
 
-### Pháe
-* [ ] Refactor `main.go` thành thuần Entrypoint (Log init, Graceful shutdown handling).
-* [ ] Tạo `internal/app/dataset_sync.go` điều phối Use Case ứng dụng.
-* [ ] Chuyển Dockerfile runtime sang Google Distroless (`gcr.io/distroless/static-debian12`).
-* [ ] Cập nhật Go version trong `go.mod`.
+### Phase 4 FIX bổ sung
+* [x] Refactor `main.go` thành thuần Entrypoint (Log init, Graceful shutdown handling).
+* [x] Tạo `internal/app/dataset_sync.go` điều phối Use Case ứng dụng.
+* [x] Chuyển Dockerfile runtime sang Google Distroless (`gcr.io/distroless/static-debian12`).
+* [x] Cập nhật Go version trong `go.mod`.
 
 ---
 
