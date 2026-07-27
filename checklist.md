@@ -431,6 +431,9 @@
 * [x] Thiết lập Spark-style Dynamic R Worker Pool Daemon (Persistent process IPC/stdin loop).
 * [x] Tích hợp bộ Ticker & Idle Timer (5s timeout auto-shutdown cho R worker khi nhàn rỗi).
 * [x] Tối ưu hóa tái sử dụng R process (Warm process reuse, 0ms startup latency khi stream dữ liệu liên tục).
+* [x] Thiết lập Pure Resource-Driven Auto-Scaling (Bỏ hardcode max worker, đo chỉ số CPU/RAM thực tế theo thời gian thực).
+* [x] Xây dựng CPU Resource Circuit Breaker với Hysteresis Gap (Tạm dừng spawn R Worker khi CPU >= 80%, cho phép spawn lại khi CPU <= 75%).
+* [x] Cấu hình Docker Compose Resource Limits (`cpus`, `memory`) dành riêng cho Rust & R Processors.
 
 ---
 

@@ -37,7 +37,7 @@ services:
       - pubg-platform-net
     healthcheck:
       # Kiểm tra Kafka sẵn sàng nhận kết nối
-      test: ["CMD-SHELL", "kafka-broker-api-versions.sh --bootstrap-server kafka:9092 > /dev/null 2>&1"]
+      test: [ "CMD-SHELL", "kafka-broker-api-versions.sh --bootstrap-server kafka:9092 > /dev/null 2>&1" ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -67,7 +67,7 @@ services:
       - pubg-platform-net
     healthcheck:
       # Kiểm tra liveness endpoint của MinIO
-      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      test: [ "CMD", "curl", "-f", "http://localhost:9000/minio/health/live" ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -84,7 +84,7 @@ services:
         condition: service_healthy # Chỉ chạy sau khi Kafka đã healthy
     volumes:
       - ./init/create-topics.sh:/create-topics.sh:ro
-    entrypoint: ["/bin/bash", "/create-topics.sh", "kafka:9092"]
+    entrypoint: [ "/bin/bash", "/create-topics.sh", "kafka:9092" ]
     networks:
       - pubg-platform-net
 
@@ -104,7 +104,7 @@ services:
       - MINIO_BUCKET=pubg-data
     volumes:
       - ./init/create-buckets.sh:/create-buckets.sh:ro
-    entrypoint: ["/bin/sh", "/create-buckets.sh"]
+    entrypoint: [ "/bin/sh", "/create-buckets.sh" ]
     networks:
       - pubg-platform-net
 
@@ -117,6 +117,14 @@ services:
       dockerfile: Dockerfile
     container_name: pubg-rust-processor
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '4.00' # Cấp tối đa 4 lõi CPU dành riêng cho Rust Processor
+          memory: 4G # Cấp tối đa 4GB RAM dành riêng
+        reservations:
+          cpus: '1.00' # Bảo đảm tối thiểu 1.0 CPU core
+          memory: 1G # Bảo đảm tối thiểu 1GB RAM
     depends_on:
       kafka:
         condition: service_healthy
@@ -133,9 +141,9 @@ services:
       - MINIO_ENDPOINT=http://minio:9000
       - MINIO_ACCESS_KEY=minioadmin
       - MINIO_SECRET_KEY=minioadmin
-      - MINIO_BUCKET=pubg-data
-      - RUST_BATCH_SIZE=1000
-      - RUST_FLUSH_INTERVAL_MS=1000
+      - MINIO_BUCKET=fps-anticheat-datalake
+      - BATCH_SIZE=1000
+      - FLUSH_INTERVAL_MS=1000
       - RUST_LOG=info
     networks:
       - pubg-platform-net
