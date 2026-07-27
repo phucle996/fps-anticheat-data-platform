@@ -107,7 +107,7 @@
 * [x] Viết unit test cho parser.
 
 ### Phase 5 FIX bổ sung
-* [x] Tổ chức tập trung unit tests & testdata vào sub-package folder (`internal/parser/csv/tests/`).
+* [x] Tổ chức tập trung unit tests & testdata vào thư mục test chung (`internal/test/parser/csv/`).
 
 ---
 

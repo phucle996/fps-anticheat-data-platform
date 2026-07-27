@@ -10,9 +10,9 @@ import (
 	"pubg-anti-cheat/go-ingestor/internal/parser/csv"
 )
 
-// TestCSVParser_ValidStream kiểm tra đọc thành công dòng qua dòng từ CSV hợp lệ trong tập thư mục tests/
+// TestCSVParser_ValidStream kiểm tra đọc thành công dòng qua dòng từ CSV hợp lệ trong internal/test/parser/csv/
 func TestCSVParser_ValidStream(t *testing.T) {
-	// 1. Mở file testdata/valid.csv nằm ngay trong sub-package tests/testdata/
+	// 1. Mở file testdata/valid.csv nằm trong internal/test/parser/csv/testdata/
 	file, err := os.Open("testdata/valid.csv")
 	if err != nil {
 		t.Fatalf("Không thể mở file testdata/valid.csv: %v", err)
