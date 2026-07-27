@@ -1,3 +1,4 @@
+pub mod app;
 pub mod config;
 pub mod domain;
 pub mod error;
@@ -5,6 +6,7 @@ pub mod ingest;
 pub mod storage;
 pub mod transform;
 
+pub use app::StreamProcessorApp;
 pub use config::Config;
 pub use domain::*;
 pub use error::{AppError, Result};

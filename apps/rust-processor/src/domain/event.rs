@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-/// EventEnvelope khớp 100% Data Contract với Go Ingestor
+/// EventEnvelope đóng gói sự kiện Anticheat được chuẩn hóa từ Go Ingestor
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EventEnvelope {
     pub schema_version: String,        // Phiên bản schema (vd: "1.0")
@@ -38,10 +38,11 @@ pub struct PlayerStatPayload {
 
 /// BatchMetadata lưu thông tin phân đoạn batch
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(dead_code)]
 pub struct BatchMetadata {
-    pub batch_id: String,       // UUID / SHA256 đại diện cho batch
-    pub record_count: usize,    // Số lượng bản ghi trong batch
-    pub partition: i32,         // Partition Kafka nguồn
-    pub min_offset: i64,        // Offset nhỏ nhất trong batch
-    pub max_offset: i64,        // Offset lớn nhất trong batch
+    pub batch_id: String,               // Mã băm batch
+    pub record_count: i64,              // Tổng số bản ghi trong batch
+    pub first_offset: i64,              // Offset đầu tiên trong batch
+    pub last_offset: i64,               // Offset cuối cùng trong batch
+    pub timestamp: String,              // Thời điểm đóng gói batch
 }
