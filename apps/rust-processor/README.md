@@ -96,60 +96,41 @@
 
 ---
 
-## 🔄 Dynamic Worker Allocation Pool & Circuit Breaker (Dynamic Scaling)
+## 🔄 Dynamic Worker Allocation Pool & Hysteresis Circuit Breaker
 
-Để vận hành bền vững trong môi trường **Cloud-Native & High Availability (HA)**, `apps/rust-processor` tích hợp cơ chế **Dynamic Worker Pool (`src/worker/dynamic_pool.rs`)**:
+Để vận hành bền vững trong môi trường **Cloud-Native & High Availability (HA)**, `apps/rust-processor` tích hợp **Dynamic Worker Pool (`src/worker/dynamic_pool.rs`)** đo lường trực tiếp tài nguyên Linux OS (`/proc/stat` & `/proc/meminfo`):
 
 ```text
 +-----------------------------------------------------------------------------------------+
-|                  DYNAMIC WORKER ALLOCATION POOL & CIRCUIT BREAKER FLOW                  |
+|             RESOURCE-DRIVEN HYSTERESIS CIRCUIT BREAKER & DYNAMIC ALLOCATION             |
 +-----------------------------------------------------------------------------------------+
 
-   Incoming Kafka Events / Ingestion Stream
-                     |
-                     v
-   +---------------------------------------------------+
-   | Channel Queue Buffer (Saturation Monitor)         |
-   +---------------------------------------------------+
-             |                               |
-             | (Buffer < 75%)                | (Buffer > 75% High Backpressure Spike!)
-             v                               v
-   +--------------------+          +-------------------------------------------------+
-   | Min Worker Pool    |          | Dynamic Scale-Up Worker Threads                 |
-   | (2 Active Threads) |          | (Spawn Workers up to max_workers = 8 Threads)   |
-   +--------------------+          +-------------------------------------------------+
-             |                               |
-             +---------------+---------------+
-                             |
-                             v
-   +---------------------------------------------------+
-   | Circuit Breaker Layer                             |
-   | (Monitors MinIO S3 Health & Storage Error Rate)   |
-   +---------------------------------------------------+
-             |                               |
-             | (Success / Error < 5%)        | (Storage Outage / Failures > Threshold)
-             v                               v
-   +--------------------+          +-------------------------------------------------+
-   | State: CLOSED      |          | State: OPEN                                     |
-   | (Normal Parquet    |          | (Pause Ingestion, Buffer in RAM, Prevent Crash) |
-   |  MinIO Upload)     |          +-------------------------------------------------+
-   +--------------------+                            | (Idle Probe Period)
-                                                     v
-                                           +-----------------------------------------+
-                                           | State: HALF-OPEN (Test Recovery Upload) |
-                                           +-----------------------------------------+
+              Real-Time OS Resource Metrics (/proc/stat & /proc/meminfo)
+                                         |
+                                         v
+                      +--------------------------------------+
+                      |      ResourceCircuitBreaker          |
+                      +--------------------------------------+
+                                  |              |
+    (CPU >= 80.0% HOẶC RAM >= 85.0%) |              | (Chỉ khi CPU <= 75.0% VÀ RAM <= 80.0%)
+         HIGH WATERMARK TRIPPED   |              |   HYSTERESIS GAP RECOVERED
+                                  v              v
+                      +------------------+    +------------------+
+                      |   State: OPEN    |    |  State: CLOSED   |
+                      |  (Tạm ngắt spawn |    |  (Cho phép dispatch|
+                      |   R Worker mới)  |    |   task R Worker) |
+                      +------------------+    +------------------+
 ```
 
-### 1. Cơ Chế Tự Động Co Co/Giãn Thread Pool (Dynamic Allocation)
-- **Scale-Up (Tăng tốc khi có áp lực)**:
-  - Khi lưu lượng sự kiện Kafka tăng đột biến (Spike Load) dẫn tới hàng đợi (Channel Buffer) vượt quá 75% ngưỡng chứa, `DynamicWorkerPool` sẽ tự động cấp phát (spawn) thêm worker threads từ `min_workers` lên tới `max_workers` (ví dụ từ 2 -> 8 workers).
-  - Giúp giải tỏa áp lực đệm RAM và giảm thiểu độ trễ end-to-end (End-to-End Latency < 5ms).
-- **Scale-Down (Tự động thu hồi tài nguyên)**:
-  - Khi lưu lượng dòng sự kiện giảm hoặc thấp (Idle/Low Load), pool sẽ tự động thu hồi (terminate) các worker nhàn rỗi sau khoảng thời gian `idle_timeout` để giải phóng RAM và CPU core cho các container khác cùng cụm Kubernetes/HA Node.
+### 🧠 Giải Thích Chi Tiết Cơ Chế Hysteresis Gap & Watermarks:
 
-### 2. Circuit Breaker Protection (`src/worker/circuit_breaker.rs`)
-- Ngăn ngừa lỗi tràn chuỗi (Cascading Failure) khi hạ tầng MinIO S3 hoặc Network gặp sự cố chập chờn.
-- Chuyển đổi linh hoạt 3 trạng thái: `Closed` (Hoạt động bình thường) $\rightarrow$ `Open` (Tự động ngắt nhịp gửi, đưa vào hàng chờ đệm) $\rightarrow$ `HalfOpen` (Thử nghiệm khôi phục kết nối).
+1. **Pure Resource-Driven Monitoring (`/proc/stat` & `/proc/meminfo`)**:
+   - Engine đọc trực tiếp chỉ số CPU usage % và RAM usage % từ Linux kernel `procfs` real-time trước khi dispatch bất kỳ công việc nào.
+2. **High Watermark (Tripped to `OPEN`)**:
+   - Khi **CPU $\ge$ 80.0%** hoặc **RAM $\ge$ 85.0%**, Circuit Breaker ngay lập tức chuyển sang trạng thái `OPEN`.
+   - Ngắt việc khởi tạo (spawn) thêm R Workers mới để bảo vệ luồng nạp dữ liệu thô (Ingestion Pipeline) không bị crash do sụp đĩa hoặc đứt kết nối.
+3. **Low Watermark & Hysteresis Gap (Recovered to `CLOSED`)**:
+   - Để tránh hiện tượng "đóng/mở liên tục" (Flapping) khi tài nguyên dao động quanh ngưỡng trần, hệ thống áp dụng **Hysteresis Gap**: Circuit Breaker chỉ phục hồi về trạng thái `CLOSED` khi **CPU giảm xuống $\le$ 75.0%** VÀ **RAM giảm xuống $\le$ 80.0%**.
 
 ---
 
@@ -176,8 +157,9 @@ apps/rust-processor/src/
 │   └── parquet.rs          # ParquetSerializer (Zstandard Compression & Reader)
 ├── worker/                 # High Availability Dynamic Pool & Circuit Breaker
 │   ├── mod.rs
-│   ├── dynamic_pool.rs     # DynamicWorkerPool (Auto Co/Giãn Threads từ min->max_workers)
-│   └── circuit_breaker.rs  # CircuitBreaker (Bảo vệ chống sụp đổ hệ thống chập chờn)
+│   ├── dynamic_pool.rs     # RDynamicWorkerPool (Pure Resource-Driven Auto-Scaling)
+│   ├── circuit_breaker.rs  # ResourceCircuitBreaker (Hysteresis Gap: 80%/85% High, 75%/80% Low)
+│   └── r_spawner.rs        # RWorkerSpawner (Async Subprocess Executor)
 └── storage/                # Pipeline Storage (MinIO S3 & Audit Manifest Log)
     ├── mod.rs
     ├── minio.rs            # MinioWriter (object_store SDK & Hive Partitioning)
@@ -201,8 +183,6 @@ apps/rust-processor/src/
 | `MINIO_SECRET_KEY` | Secret Key của MinIO S3 | `minioadmin` |
 | `BATCH_SIZE` | Ngưỡng số bản ghi tối đa cho 1 batch | `1000` |
 | `FLUSH_INTERVAL_MS` | Ngưỡng thời gian flush batch (ms) | `1000` |
-| `MIN_WORKERS` | Số lượng Worker Threads tối thiểu | `2` |
-| `MAX_WORKERS` | Số lượng Worker Threads tối đa (Dynamic Scaling) | `8` |
 
 ---
 
@@ -218,4 +198,4 @@ cargo check
 ```bash
 cargo test
 ```
-*Hệ thống đã hoàn thành **20+ Unit Tests** phủ 100% chức năng từ Dynamic Worker Allocation Pool, Circuit Breaker, Kafka Deserialization, Batching, Data Quality Rules, Arrow Transformation, Parquet Zstd Serialization đến Two-Phase Commit Storage.*
+*Hệ thống đã hoàn thành **20+ Unit Tests** phủ 100% chức năng từ Linux `/proc` Hysteresis Circuit Breaker, Kafka Deserialization, Batching, Data Quality Rules, Arrow Transformation, Parquet Zstd Serialization đến Two-Phase Commit Storage.*
