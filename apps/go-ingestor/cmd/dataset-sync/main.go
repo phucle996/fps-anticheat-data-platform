@@ -20,7 +20,7 @@ import (
 
 func main() {
 	// 1. Khởi tạo JSON Logger cho dịch vụ
-	logger := logging.InitLogger("go-ingestor")
+	logging.InitLogger("go-ingestor")
 	slog.Info("Khởi động tiến trình dataset-sync...")
 
 	// 2. Nạp cấu hình ứng dụng từ Environment Variables
