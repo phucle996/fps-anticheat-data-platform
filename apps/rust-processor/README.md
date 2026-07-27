@@ -101,57 +101,59 @@
 Hệ thống kết hợp cơ chế **Spark-Style Warm Worker Daemon Pool** (`src/worker/dynamic_pool.rs`) cùng **Resource-Driven Hysteresis Circuit Breaker** (`src/worker/circuit_breaker.rs`) đọc tài nguyên real-time từ Linux `/proc/stat` & `/proc/meminfo`:
 
 ```text
-+---------------------------------------------------------------------------------------------------------+
-|        SPARK-STYLE WARM WORKER DAEMON & HYSTERESIS CIRCUIT BREAKER FLOW (5s IDLE KEEP-ALIVE)            |
-+---------------------------------------------------------------------------------------------------------+
++-------------------------------------------------------------------------------------------------------------------------+
+|                  SPARK-STYLE WARM WORKER DAEMON & HYSTERESIS CIRCUIT BREAKER FLOW (5s IDLE KEEP-ALIVE)                  |
++-------------------------------------------------------------------------------------------------------------------------+
 
-                              Kafka Consumer Raw Stream (pubg.v1.player-stat.raw)
-                                                     |
-                                                     v
-                         +-------------------------------------------------------+
-                         | Ingest Accumulator (3 Parallel Batch Triggers)        |
-                         |   ├── 1. Record Count Trigger (len >= BATCH_SIZE)     |
-                         |   ├── 2. Byte Size Trigger (bytes >= MAX_BATCH_BYTES) |
-                         |   └── 3. Time-based Flush Trigger (elapsed >= 1000ms) |
-                         +-------------------------------------------------------+
-                                                     |
-                                                     v (Tạo Bronze Parquet + Manifest JSON)
-                       Real-Time OS Resource Metrics (/proc/stat & /proc/meminfo)
-                                                     |
-                                                     v
-                                  +------------------------------------+
-                                  |     ResourceCircuitBreaker         |
-                                  +------------------------------------+
-                                              |            |
-                (CPU >= 80.0% HOẶC RAM >= 85.0%) |            | (CPU <= 75.0% VÀ RAM <= 80.0%)
-                     HIGH WATERMARK TRIPPED   |            |   HYSTERESIS GAP RECOVERED
-                                              v            v
-                                  +---------------+    +---------------+
-                                  |  State: OPEN  |    | State: CLOSED |
-                                  | (Tạm dừng     |    | (Cho phép     |
-                                  |  spawn R Task)|    |  dispatch task|
-                                  +---------------+    +---------------+
-                                                              |
-                                                              v
-                                  +------------------------------------+
-                                  |        RDynamicWorkerPool          |
-                                  |    (Unbounded Task Dispatcher)     |
-                                  +------------------------------------+
-                                             |
-                   +-------------------------+-------------------------+
-                   |                         |                         |
-                   v                         v                         v
-       +-----------------------+ +-----------------------+ +-----------------------+
-       | R Worker Daemon Task 1| | R Worker Daemon Task 2| | R Worker Daemon Task N|
-       | (Pre-loaded R Libs)   | | (Pre-loaded R Libs)   | | (Unbounded Scaling)   |
-       +-----------------------+ +-----------------------+ +-----------------------+
-                   |                         |                         |
-                   v                         v                         v
-       +---------------------------------------------------------------------------+
-       | Executing Subprocess: daemon_worker.R (GIỮ LẠI TRONG RAM đệm chu kỳ)     |
-       | - Có Batch mới (trong 5s) ──► Nhận & xử lý ngay tức thì (0ms Delay)       |
-       | - Hết 5s Idle Timeout     ──► Subprocess Exit 0 -> OS Reclaim 100% RAM    |
-       +---------------------------------------------------------------------------+
+                                    Kafka Consumer Raw Stream (pubg.v1.player-stat.raw)
+                                                            |
+                                                            v
+                               +----------------------------------------------------------+
+                               |     Ingest Accumulator (3 Parallel Batch Triggers)       |
+                               |   ├── 1. Record Count Trigger (len >= BATCH_SIZE)        |
+                               |   ├── 2. Byte Size Trigger (bytes >= MAX_BATCH_BYTES)    |
+                               |   └── 3. Time-based Flush Trigger (elapsed >= 1000ms)    |
+                               +----------------------------------------------------------+
+                                                            |
+                                                            v (Tạo Bronze Parquet + Manifest JSON)
+                             Real-Time OS Resource Metrics (/proc/stat & /proc/meminfo)
+                                                            |
+                                                            v
+                                        +---------------------------------------+
+                                        |        ResourceCircuitBreaker         |
+                                        +---------------------------------------+
+                                                    |               |
+               (CPU >= 80.0% HOẶC RAM >= 85.0%)      |               | (CPU <= 75.0% VÀ RAM <= 80.0%)
+                    HIGH WATERMARK TRIPPED          |               |   HYSTERESIS GAP RECOVERED
+                                                    v               v
+                                        +------------------+   +------------------+
+                                        |   State: OPEN    |   |  State: CLOSED   |
+                                        | (Tạm dừng spawn  |   | (Cho phép        |
+                                        |  R Worker Task)  |   |  dispatch task)  |
+                                        +------------------+   +------------------+
+                                                                         |
+                                                                         v
+                                        +---------------------------------------+
+                                        |          RDynamicWorkerPool           |
+                                        |     (Unbounded Task Dispatcher)       |
+                                        +---------------------------------------+
+                                                    |
+                   +--------------------------------+--------------------------------+
+                   |                                |                                |
+                   v                                v                                v
+       +-----------------------+        +-----------------------+        +-----------------------+
+       | R Worker Daemon Task 1|        | R Worker Daemon Task 2|        | R Worker Daemon Task N|
+       | (Pre-loaded R Libs)   |        | (Pre-loaded R Libs)   |        | (Unbounded Scaling)   |
+       +-----------------------+        +-----------------------+        +-----------------------+
+                   |                                |                                |
+                   +--------------------------------+--------------------------------+
+                                                    |
+                                                    v
+       +---------------------------------------------------------------------------------------------------+
+       | Executing Subprocess: daemon_worker.R (GIỮ LẠI TRONG RAM đệm chu kỳ)                              |
+       |  ├── Có Batch mới trong 5s   ──► Nhận & xử lý ngay tức thì (0ms Startup Delay)                      |
+       |  └── Hết 5s Idle Timeout     ──► Subprocess Exit 0 -> OS Kernel Auto Reclaims 100% RAM               |
+       +---------------------------------------------------------------------------------------------------+
 ```
 
 ### 🧠 Giải Thích Chi Tiết Cơ Chế Warm Worker Daemon & Vòng Đời Bộ Nhớ:
