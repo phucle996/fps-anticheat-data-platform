@@ -136,22 +136,22 @@
 
 ## Phase 7 — Go Dataset Replay
 
-* [ ] Tạo command `replay`.
-* [ ] Load dataset manifest.
-* [ ] Xác định selected CSV.
-* [ ] Khởi tạo CSV parser.
-* [ ] Khởi tạo normalizer.
-* [ ] Tạo replay loop.
-* [ ] Hỗ trợ giới hạn số records.
-* [ ] Hỗ trợ start record.
-* [ ] Hỗ trợ dry-run.
-* [ ] In normalized event trong dry-run.
-* [ ] Theo dõi replay statistics.
-* [ ] Đếm records read.
-* [ ] Đếm valid records.
-* [ ] Đếm invalid records.
-* [ ] Đếm produced records.
-* [ ] Thêm graceful shutdown.
+* [x] Tạo command `replay`.
+* [x] Load dataset manifest.
+* [x] Xác định selected CSV.
+* [x] Khởi tạo CSV parser.
+* [x] Khởi tạo normalizer.
+* [x] Tạo replay loop.
+* [x] Hỗ trợ giới hạn số records.
+* [x] Hỗ trợ start record.
+* [x] Hỗ trợ dry-run.
+* [x] In normalized event trong dry-run.
+* [x] Theo dõi replay statistics.
+* [x] Đếm records read.
+* [x] Đếm valid records.
+* [x] Đếm invalid records.
+* [x] Đếm produced records.
+* [x] Thêm graceful shutdown.
 
 ---
 
