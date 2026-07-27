@@ -7,32 +7,68 @@
 ## 🏗️ Kiến trúc Pipeline & Luồng Dữ liệu (Data Flow)
 
 ```text
-[Kafka Cluster] (pubg.v1.player-stat.raw)
-       │
-       ▼ (rdkafka StreamConsumer, enable.auto.commit = false)
-[1. Ingest Module] (KafkaConsumer & BatchAccumulator)
-       │
-       ▼ (RAM Micro/Macro Batching + Partition Offset Tracking)
-[2. Data Quality Engine] (EventValidator - 11 Semantic Rules)
-       ├──► Vi phạm: Upload JSON sang bronze/invalid/
-       │
-       ▼ (Bản ghi hợp lệ)
-[3. In-Batch Deduplicator] (EventDeduplicator - Lọc trùng event_id)
-       │
-       ▼
-[4. Apache Arrow Converter] (ArrowConverter - RecordBatch 19 cột)
-       │
-       ▼
-[5. Parquet Serializer] (ParquetSerializer - Zstandard Compression)
-       │
-       ▼
-[6. MinIO S3 Bronze Writer] (MinioWriter - Hive Partitioning)
-       │
-       ├── Phase 1: Upload Parquet -> bronze/player-stat/year=YYYY/month=MM/day=DD/...
-       ├── Phase 2: Upload Manifest JSON -> manifests/year=YYYY/month=MM/day=DD/...
-       │
-       ▼ (Chỉ thực thi khi Phase 1 & 2 thành công 100%)
-[7. Kafka Offset Commit] (commit_partition_offsets: max_offset + 1)
++-----------------------------------------------------------------------------------------+
+|                       RUST STREAM PROCESSOR PIPELINE ARCHITECTURE                       |
++-----------------------------------------------------------------------------------------+
+
+                 +-----------------------------------------------+
+                 |  Apache Kafka Cluster                         |
+                 |  (pubg.v1.player-stat.raw)                    |
+                 +-----------------------------------------------+
+                                         |
+                                         | (rdkafka StreamConsumer, enable.auto.commit = false)
+                                         v
+                 +-----------------------------------------------+
+                 | 1. Ingest Module                              |
+                 |    (KafkaConsumer & BatchAccumulator)         |
+                 +-----------------------------------------------+
+                                         |
+                                         | (RAM Micro/Macro Batching + Partition Offset Tracking)
+                                         v
+                 +-----------------------------------------------+
+                 | 2. Data Quality Engine                        |
+                 |    (EventValidator - 11 Semantic Rules)       |
+                 +-----------------------------------------------+
+                         |                               |
+                         | (Valid Records)               | (Invalid / Violations)
+                         v                               v
+       +------------------------------------+   +------------------------------------+
+       | 3. In-Batch Deduplicator           |   | MinIO Dead Letter Storage          |
+       |    (EventDeduplicator - event_id)  |   | (bronze/invalid/year=YYYY/...)     |
+       +------------------------------------+   +------------------------------------+
+                         |
+                         v
+       +------------------------------------+
+       | 4. Apache Arrow Converter          |
+       |    (RecordBatch 19 Columns Schema) |
+       +------------------------------------+
+                         |
+                         v
+       +------------------------------------+
+       | 5. Parquet Serializer              |
+       |    (Zstandard Compression Rate 4.2x)|
+       +------------------------------------+
+                         |
+                         v
+       +------------------------------------+
+       | 6. MinIO S3 Bronze Writer          |
+       |    (Durable Two-Phase Commit 2PC)  |
+       +------------------------------------+
+             |                       |
+             | (Phase 1)             | (Phase 2)
+             v                       v
+   +--------------------+  +--------------------+
+   | Parquet Data File  |  | Manifest Metadata  |
+   | (bronze/player-...) |  | (manifests/...)    |
+   +--------------------+  +--------------------+
+             |                       |
+             +-----------+-----------+
+                         | (Only when Phase 1 & 2 succeed 100%)
+                         v
+       +------------------------------------+
+       | 7. Kafka Partition Offset Commit   |
+       |    (commit_partition_offsets)      |
+       +------------------------------------+
 ```
 
 ---
