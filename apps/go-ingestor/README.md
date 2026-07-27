@@ -9,17 +9,46 @@ Dịch vụ **Go Dataset Ingestor** đóng vai trò là cổng nạp dữ liệu
 ## 🏛️ Kiến Trúc và Luồng Dữ Liệu (Architecture & Flow)
 
 ```text
-[ Kaggle PUBG Dataset / Local CSV ]
-                 │
-                 ▼
-     [ Go Dataset Ingestor ]
-     ├── 1. Kaggle Downloader / CSV File Reader
-     ├── 2. Canonical Normalizer (Hash player_id & match_id)
-     ├── 3. Base Validator (Rule check schema & bounds)
-     └── 4. Kafka Sync / Replay Producer Daemon
-                 │
-                 ▼
-  [ Kafka Raw Topic: pubg.v1.player-stat.raw ]
++-----------------------------------------------------------------------------------------+
+|                    GO DATASET INGESTOR PIPELINE ARCHITECTURE                            |
++-----------------------------------------------------------------------------------------+
+
+                 +-----------------------------------------------+
+                 |  Kaggle PUBG Telemetry / Local CSV File       |
+                 |  (pubg-match-ground-truth.csv)                |
+                 +-----------------------------------------------+
+                                         |
+                                         | (Kaggle API Downloader / File Stream Reader)
+                                         v
+                 +-----------------------------------------------+
+                 | 1. Kaggle Downloader / CSV Reader             |
+                 |    (Streaming CSV Buffer Reader)              |
+                 +-----------------------------------------------+
+                                         |
+                                         v
+                 +-----------------------------------------------+
+                 | 2. Canonical Schema Normalizer                |
+                 |    (SHA-256 Hashing player_id & match_id)     |
+                 +-----------------------------------------------+
+                                         |
+                                         v
+                 +-----------------------------------------------+
+                 | 3. Base Data Quality Validator                |
+                 |    (Rule Check: Schema, Bounds & Metrics)     |
+                 +-----------------------------------------------+
+                                         |
+                                         v
+                 +-----------------------------------------------+
+                 | 4. Batching & Checkpoint State Engine         |
+                 |    (400 Records/Batch + Replay Resume State)  |
+                 +-----------------------------------------------+
+                                         |
+                                         | (Async High-Throughput Producer)
+                                         v
+                 +-----------------------------------------------+
+                 |  Apache Kafka Cluster                         |
+                 |  (Topic: pubg.v1.player-stat.raw)             |
+                 +-----------------------------------------------+
 ```
 
 ---
