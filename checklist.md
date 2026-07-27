@@ -460,18 +460,18 @@
 
 ## Phase 23 — Exploratory Data Analysis
 
-* [ ] Thống kê số player.
-* [ ] Thống kê số match.
-* [ ] Thống kê kills.
-* [ ] Thống kê damage.
-* [ ] Thống kê headshot ratio.
-* [ ] Thống kê movement.
-* [ ] Vẽ feature distributions.
-* [ ] Kiểm tra missing values.
-* [ ] Kiểm tra feature correlation.
-* [ ] Kiểm tra extreme values.
-* [ ] Chọn feature dùng cho model.
-* [ ] Xuất EDA report.
+* [x] Thống kê số player.
+* [x] Thống kê số match.
+* [x] Thống kê kills.
+* [x] Thống kê damage.
+* [x] Thống kê headshot ratio.
+* [x] Thống kê movement.
+* [x] Vẽ feature distributions.
+* [x] Kiểm tra missing values.
+* [x] Kiểm tra feature correlation.
+* [x] Kiểm tra extreme values.
+* [x] Chọn feature dùng cho model.
+* [x] Xuất EDA report.
 
 ---
 
