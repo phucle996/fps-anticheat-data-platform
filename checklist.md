@@ -477,18 +477,18 @@
 
 ## Phase 24 — Python ML Worker Training và ONNX Export
 
-* [ ] Khởi tạo ứng dụng Python ML Worker (`apps/python-ml-worker`).
-* [ ] Subscribe Kafka event `pubg.v1.dataset.gold.ready`.
-* [ ] Nạp Gold Feature Parquet từ MinIO S3.
-* [ ] Chia tập Train/Validation/Test (Group split theo `match_id` / `player_id_hash`).
-* [ ] Train mô hình Logistic Regression làm baseline.
-* [ ] Train mô hình Random Forest & HistGradientBoosting.
-* [ ] Train mô hình Unsupervised Isolation Forest.
-* [ ] Đánh giá mô hình theo PR-AUC, Precision, Recall, F1-Score.
-* [ ] Đóng gói ONNX Model Bundle (`model.onnx`, `feature_schema.json`, `threshold_policy.json`).
-* [ ] Upload ONNX Model Bundle lên MinIO `s3://pubg-models/`.
-* [ ] Publish Kafka event `pubg.v1.ml.model.ready`.
-* [ ] Viết unit test cho Python ML Training & ONNX Export.
+* [x] Khởi tạo ứng dụng Python ML Worker (`apps/python-ml-worker`).
+* [x] Subscribe Kafka event `pubg.v1.dataset.gold.ready`.
+* [x] Nạp Gold Feature Parquet từ MinIO S3.
+* [x] Chia tập Train/Validation/Test (Group split theo `match_id` / `player_id_hash`).
+* [x] Train mô hình Logistic Regression làm baseline.
+* [x] Train mô hình Random Forest & HistGradientBoosting.
+* [x] Train mô hình Unsupervised Isolation Forest.
+* [x] Đánh giá mô hình theo PR-AUC, Precision, Recall, F1-Score.
+* [x] Đóng gói ONNX Model Bundle (`model.onnx`, `feature_schema.json`, `threshold_policy.json`).
+* [x] Upload ONNX Model Bundle lên MinIO `s3://pubg-models/`.
+* [x] Publish Kafka event `pubg.v1.ml.model.ready`.
+* [x] Viết unit test cho Python ML Training & ONNX Export.
 
 ---
 

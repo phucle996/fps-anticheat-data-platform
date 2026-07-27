@@ -37,7 +37,7 @@ services:
       - pubg-platform-net
     healthcheck:
       # Kiểm tra Kafka sẵn sàng nhận kết nối
-      test: [ "CMD-SHELL", "kafka-broker-api-versions.sh --bootstrap-server kafka:9092 > /dev/null 2>&1" ]
+      test: ["CMD-SHELL", "kafka-broker-api-versions.sh --bootstrap-server kafka:9092 > /dev/null 2>&1"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -67,7 +67,7 @@ services:
       - pubg-platform-net
     healthcheck:
       # Kiểm tra liveness endpoint của MinIO
-      test: [ "CMD", "curl", "-f", "http://localhost:9000/minio/health/live" ]
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -84,7 +84,7 @@ services:
         condition: service_healthy # Chỉ chạy sau khi Kafka đã healthy
     volumes:
       - ./init/create-topics.sh:/create-topics.sh:ro
-    entrypoint: [ "/bin/bash", "/create-topics.sh", "kafka:9092" ]
+    entrypoint: ["/bin/bash", "/create-topics.sh", "kafka:9092"]
     networks:
       - pubg-platform-net
 
@@ -104,7 +104,7 @@ services:
       - MINIO_BUCKET=pubg-data
     volumes:
       - ./init/create-buckets.sh:/create-buckets.sh:ro
-    entrypoint: [ "/bin/sh", "/create-buckets.sh" ]
+    entrypoint: ["/bin/sh", "/create-buckets.sh"]
     networks:
       - pubg-platform-net
 
@@ -145,6 +145,32 @@ services:
       - BATCH_SIZE=1000
       - FLUSH_INTERVAL_MS=1000
       - RUST_LOG=info
+    networks:
+      - pubg-platform-net
+
+  # ------------------------------------------
+  # 6. Python Machine Learning Worker
+  # ------------------------------------------
+  python-ml-worker:
+    build:
+      context: ../../apps/python-ml-worker
+      dockerfile: Dockerfile
+    container_name: pubg-python-ml-worker
+    restart: unless-stopped
+    depends_on:
+      kafka:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    environment:
+      - KAFKA_BROKERS=kafka:9092
+      - KAFKA_TOPIC_GOLD=pubg.v1.dataset.gold.ready
+      - KAFKA_TOPIC_MODEL=pubg.v1.ml.model.ready
+      - MINIO_ENDPOINT=http://minio:9000
+      - MINIO_BUCKET_DATA=fps-anticheat-datalake
+      - MINIO_BUCKET_MODEL=pubg-models
+      - MINIO_ACCESS_KEY=minioadmin
+      - MINIO_SECRET_KEY=minioadmin
     networks:
       - pubg-platform-net
 

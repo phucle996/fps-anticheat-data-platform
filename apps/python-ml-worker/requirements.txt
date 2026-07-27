@@ -1,0 +1,21 @@
+# Python ML Worker Dependencies for PUBG Anti-Cheat Platform
+# ==============================================================================
+
+# Machine Learning Core Libraries
+scikit-learn>=1.3.0
+numpy>=1.24.0
+pandas>=2.0.0
+pyarrow>=12.0.0
+
+# ONNX Export & Runtime
+skl2onnx>=1.15.0
+onnxruntime>=1.15.0
+
+# S3 Data Lake & Storage SDK
+boto3>=1.28.0
+
+# Kafka Messaging Event Driver
+kafka-python>=2.0.2
+
+# Testing Framework
+pytest>=7.3.0
