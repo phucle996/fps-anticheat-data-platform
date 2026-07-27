@@ -1,178 +1,228 @@
-# PUBG Anti-Cheat Data Platform — Docker Integration Test Suite
+# PUBG Anti-Cheat Data Platform — Exhaustive Docker Integration Test Suite
 
-Tài liệu này quy định **Bộ Test Case Kiểm Thử Tích Hợp Toàn Diện trên môi trường Docker Container** (`docs/DOCKER_INTEGRATION_TEST_SUITE.md`) cho hệ thống **FPS Anti-Cheat Data Platform**. 
+Tài liệu này quy định **Bộ 42 Test Cases Kiểm Thử Tích Hợp Toàn Diện trên môi trường Docker Container** (`docs/DOCKER_INTEGRATION_TEST_SUITE.md`) cho hệ thống **FPS Anti-Cheat Data Platform**.
 
-Bộ test case bao phủ toàn bộ vòng đời ứng dụng từ **Cấu hình biến môi trường Fail-Close**, **Khả năng chịu tải và ngắt mạch Circuit Breaker**, **Validation chất lượng dữ liệu & Dead-Letter Queue (DLQ)**, **Hạ tầng Medallion Data Lake Two-Phase Commit (2PC)**, cho đến **Huấn luyện mô hình Machine Learning, ONNX UDS IPC Engine và REST API Gateway**.
+Bộ test cases này được thiết kế theo các tiêu chuẩn khắt khe nhất của **Cloud-Native & High Availability Systems**, bao phủ 100% các kịch bản thực tế: **Cấu hình Fail-Close**, **11 Quy tắc Semantic Data Quality**, **Tự động khôi phục Checkpoint**, **Ngắt mạch Hysteresis Circuit Breaker**, **Durable Two-Phase Commit (2PC)**, **Khả năng chịu tải bão tin**, **Huấn luyện mô hình ML & Suy luận ONNX UDS IPC < 1ms**, cho tới **REST API Gateway và Giao diện Streamlit Dashboard**.
 
 ---
 
-## 📐 Tổng Quan Ma Trận Kiểm Thử (Testing Matrix)
+## 📐 Ma Trận 42 Test Cases Theo 8 Miền Kiểm Thử (Testing Domains Matrix)
 
-| Test Suite | Phạm Vi Kiểm Thử | Thành Phần Liên Quan | Phương Pháp Xác Minh |
+| Miền Kiểm Thử (Domain) | Mã Test Cases | Số Lượng Cases | Phạm Vi Xử Lý |
 | :--- | :--- | :--- | :--- |
-| **Suite 1** | Fail-Close & Env Var Resilience | All Container Services | Container Exit Code 1, Log Inspection |
-| **Suite 2** | Real-Time Stream & Checkpoint | `go-ingestor`, Kafka, MinIO | Offset tracking, MinIO JSON state |
-| **Suite 3** | Data Quality & DLQ Routing | `rust-processor`, MinIO | MinIO S3 `bronze/invalid/` object inspection |
-| **Suite 4** | Hysteresis Circuit Breaker & Dynamic Pool | `rust-processor`, Linux `/proc` | CPU/RAM injection, Log Watermarks |
-| **Suite 5** | 2PC Medallion Lake & R Feature Engine | `rust-processor`, `r-processor` | Manifest SHA-256 Checksum, Gold Parquet |
-| **Suite 6** | ML Training, ONNX Export, IPC UDS & API | `python-ml-worker`, `rust-inference`, `ml-go-api` | UDS Socket Latency < 1ms, API HTTP 200 OK |
+| **Domain 1: Fail-Close & Config Resilience** | `TC-01` $\rightarrow$ `TC-06` | 6 Test Cases | Tất cả các Docker Container Services |
+| **Domain 2: Data Quality & 11 Semantic Rules** | `TC-07` $\rightarrow$ `TC-17` | 11 Test Cases | `rust-processor`, MinIO DLQ |
+| **Domain 3: Stream Engine & Checkpointing** | `TC-18` $\rightarrow$ `TC-22` | 5 Test Cases | `go-ingestor`, Kafka, MinIO |
+| **Domain 4: Backpressure & Circuit Breaker** | `TC-23` $\rightarrow$ `TC-26` | 4 Test Cases | `rust-processor`, Linux `/proc` |
+| **Domain 5: Durable 2PC & Hive Partitioning** | `TC-27` $\rightarrow$ `TC-30` | 4 Test Cases | `rust-processor`, MinIO S3 Bronze |
+| **Domain 6: R Feature Engine & Warm Daemon** | `TC-31` $\rightarrow$ `TC-34` | 4 Test Cases | `r-processor`, Silver & Gold Parquet |
+| **Domain 7: ML Training, ONNX Export & IPC UDS** | `TC-35` $\rightarrow$ `TC-38` | 4 Test Cases | `python-ml-worker`, `rust-inference` |
+| **Domain 8: REST API Gateway & Streamlit UI** | `TC-39` $\rightarrow$ `TC-42` | 4 Test Cases | `ml-go-api`, `streamlit-dashboard` |
 
 ---
 
-## 🧪 Detailed Test Cases Specification
+## 🧪 Chi Tiết 42 Test Cases Specification
 
-### Suite 1: Fail-Close & Environment Configuration Resilience Tests
+### 🔴 Domain 1: Fail-Close & Configuration Resilience (TC-01 -> TC-06)
 
-#### TC-1.1: Thiếu Biến Môi Trường Bắt Buộc (`KAFKA_BROKERS` / `MINIO_ENDPOINT`)
-- **Mục tiêu**: Đảm bảo tất cả các container service thực thi nghiêm ngặt nguyên tắc **Fail-Close 100%** (Tự ngắt ứng dụng ngay tức thì, Zero Default Fallback).
-- **Các bước thực hiện**:
-  1. Khởi chạy container `pubg-go-ingestor` hoặc `pubg-rust-processor` với việc bỏ trống biến `KAFKA_BROKERS=""`.
-  2. Quan sát log xuất ra từ container.
-- **Kết quả kỳ vọng**:
-  - Tiến trình in ra log `FATAL` / `ERROR` thông báo vi phạm biến môi trường.
-  - Container dừng lập tức với **Exit Code 1** (không chạy ngầm rác hay dùng default localhost).
+#### TC-01: Thiếu Biến `KAFKA_BROKERS` trong `go-ingestor`
+- **Mục tiêu**: Đảm bảo Ingestor ngắt khẩn cấp khi thiếu cấu hình Kafka Broker.
+- **Các bước**:
+  1. Khởi chạy `pubg-go-ingestor` với `KAFKA_BROKERS=""`.
+- **Kết quả kỳ vọng**: In log `FATAL: phát hiện 1 biến môi trường chưa khai báo: [KAFKA_BROKERS]`, dừng container với **Exit Code 1**.
 
-#### TC-1.2: Sai Thông Tin Xác Thực MinIO S3 (`MINIO_ACCESS_KEY` / `MINIO_SECRET_KEY`)
-- **Mục tiêu**: Đảm bảo khi mất kết nối hoặc sai creds S3 Storage, hệ thống ngắt an toàn mà không làm mất dữ liệu.
-- **Các bước thực hiện**:
-  1. Cấu hình `MINIO_SECRET_KEY=wrongpassword` trong `docker-compose.yml`.
-  2. Khởi chạy `rust-processor`.
-- **Kết quả kỳ vọng**:
-  - Circuit Breaker ngắt mạch, không commit Kafka Partition Offset.
-  - Log ghi nhận lỗi `AccessDenied / SignatureDoesNotMatch` và dừng container an toàn.
+#### TC-02: Thiếu Biến `MINIO_ENDPOINT` trong `rust-processor`
+- **Mục tiêu**: Đảm bảo Engine Rust ngắt ngay lập tức khi thiếu endpoint S3 Storage.
+- **Các bước**:
+  1. Khởi chạy `pubg-rust-processor` với `MINIO_ENDPOINT=""`.
+- **Kết quả kỳ vọng**: Rust App ngắt với lỗi `ConfigError::MissingEnv("MINIO_ENDPOINT")`, Exit Code 1.
 
----
+#### TC-03: Sai MinIO S3 Access Key / Secret Key
+- **Mục tiêu**: Đảm bảo ngắt an toàn khi không xác thực được với MinIO S3.
+- **Các bước**:
+  1. Đổi `MINIO_SECRET_KEY=invalid_secret` trong docker-compose.
+- **Kết quả kỳ vọng**: Báo lỗi `S3 AccessDenied`, không commit Kafka Partition Offset, dừng container.
 
-### Suite 2: Real-Time Data Ingestion & Stream Rate Pacing Tests
+#### TC-04: Kafka Raw Topic Không Tồn Tại
+- **Mục tiêu**: Kiểm tra phản ứng khi Kafka Topic bị xóa hoặc sai tên.
+- **Các bước**:
+  1. Cấu hình `KAFKA_RAW_TOPIC=non_existent_topic`.
+- **Kết quả kỳ vọng**: Consumer không thể subscribe, ném ra `KafkaError::UnknownTopic`, ngắt ứng dụng.
 
-#### TC-2.1: Giả Lập Luồng Sự Kiện Rải Rác Thời Gian Thực (`StreamDelayMs`)
-- **Mục tiêu**: Kiểm tra khả năng phát luồng dữ liệu rải rác thời gian thực của `go-ingestor`.
-- **Các bước thực hiện**:
-  1. Kích hoạt `go-ingestor` với cờ `-stream-delay-ms=20`.
-  2. Lắng nghe topic Kafka `pubg.v1.player-stat.raw` qua `kafka-console-consumer`.
-- **Kết quả kỳ vọng**:
-  - Tin nhắn được phát rải rác đều đặn 50 events/giây.
-  - Kích thước đệm RAM của `go-ingestor` duy trì ổn định `< 15 MB RAM`.
+#### TC-05: Lỗi Khóa Unix Domain Socket (`/tmp/rust_inference.sock`) Khi Bị Trùng Port/Path
+- **Mục tiêu**: Đảm bảo IPC server xử lý xung đột Socket an toàn.
+- **Các bước**:
+  1. Khởi chạy 2 tiến trình `rust-inference` ghi đè lên cùng 1 socket path.
+- **Kết quả kỳ vọng**: Tiến trình thứ 2 phát hiện socket file đã bận, unlink socket cũ an toàn hoặc ngắt với lỗi `AddrInUse`.
 
-#### TC-2.2: Tái Lập Điểm Dừng Checkpoint Khi Dừng Container Đột Ngột (Fault Tolerance)
-- **Mục tiêu**: Kiểm tra cơ chế khôi phục vị trí nạp dữ liệu (Resume from Checkpoint) khi hạ tầng container bị ngắt điện.
-- **Các bước thực hiện**:
-  1. Khởi chạy `go-ingestor` nạp dữ liệu tới bản ghi thứ 5,000.
-  2. Thực hiện ngắt cưỡng chế container (`docker kill pubg-go-ingestor`).
-  3. Khởi động lại container (`docker start pubg-go-ingestor`).
-- **Kết quả kỳ vọng**:
-  - Container đọc file state `checkpoints/go-replay/state.json` trên MinIO S3.
-  - Tự động Resume bắt đầu từ dòng `5,001` mà không bị nạp trùng lặp (Zero Duplicate Re-ingestion).
+#### TC-06: Chuỗi Cấu Hình Môi Trường Sai Định Định Dạng (Malformed URL/JSON)
+- **Mục tiêu**: Kiểm định tính hợp lệ của parser cấu hình.
+- **Các bước**:
+  1. Truyền `FLUSH_INTERVAL_MS=abc_invalid`.
+- **Kết quả kỳ vọng**: Parse failure `ParseIntError`, container ngắt lập tức với Exit Code 1.
 
 ---
 
-### Suite 3: Data Quality, Semantic Validation & DLQ Routing Tests
+### 🟡 Domain 2: Data Quality & 11 Semantic Boundary Checks (TC-07 -> TC-17)
 
-#### TC-3.1: Kiểm Định 11 Quy Tắc Data Quality Semantic
-- **Mục tiêu**: Xác minh bộ lọc `EventValidator` trong `rust-processor` phân loại chính xác bản ghi hợp lệ và bản ghi rác.
-- **Các bước thực hiện**:
-  1. Bơm các bản ghi rác chứa vi phạm ngữ nghĩa: `kills = -5`, `win_place_perc = 1.5`, `headshot_kills > kills`.
-  2. Kiểm tra đệm xử lý trong `rust-processor`.
-- **Kết quả kỳ vọng**:
-  - Bản ghi vi phạm bị từ chối chuyển sang luồng nén Parquet chính.
-  - Đẩy bản ghi vi phạm dạng JSON vào đệm Dead-Letter Queue (DLQ).
+#### TC-07: Vi Phạm Âm Số Lượng Kills (`kills < 0`)
+- **Các bước**: Bơm event `kills = -3`.
+- **Kết quả kỳ vọng**: `EventValidator` loại bỏ event, ghi log `SemanticViolation("kills_negative")`.
 
-#### TC-3.2: Kiểm Tra Lưu Trữ Vùng Đệm Vi Phạm MinIO S3 (`bronze/invalid/`)
-- **Mục tiêu**: Đảm bảo các bản ghi lỗi được bảo toàn nguyên trạng trên S3 để phục vụ phân tích lỗi (Audit & Root Cause Analysis).
-- **Các bước thực hiện**:
-  1. Kiểm tra bucket `fps-anticheat-datalake` trên MinIO.
-- **Kết quả kỳ vọng**:
-  - Xuất hiện file dữ liệu vi phạm tại đường dẫn Hive Partition: `bronze/invalid/year=YYYY/month=MM/day=DD/invalid_records_*.json`.
+#### TC-08: Vi Phạm Tỷ Lệ Xếp Hạng Vượt Ngưỡng (`win_place_perc > 1.0` hoặc `< 0.0`)
+- **Các bước**: Bơm event `win_place_perc = 1.25`.
+- **Kết quả kỳ vọng**: Bị lọc bỏ, không nén vào file Bronze Parquet chính.
 
----
+#### TC-09: Vi Phạm Tỷ Lệ Bắn Vào Đầu Không Hợp Lý (`headshot_kills > kills`)
+- **Các bước**: Bơm event `headshot_kills = 10` nhưng `kills = 2`.
+- **Kết quả kỳ vọng**: Lọc bỏ với nguyên nhân `InvalidMetricCombination("headshots_exceed_kills")`.
 
-### Suite 4: Dynamic Worker Allocation Pool & Hysteresis Circuit Breaker Tests
+#### TC-10: Vi Phạm Tốc Độ Di Chuyển Bất Thường (`walk_distance / duration > MAX_SPEED`)
+- **Các bước**: Bơm event di chuyển `50,000m` trong `10 giây`.
+- **Kết quả kỳ vọng**: Đánh dấu vi phạm tốc độ di chuyển hack speed.
 
-#### TC-4.1: Kiểm Thử Chịu Tải Đột Biến (Spike Load Backpressure)
-- **Mục tiêu**: Kiểm tra khả năng tự động điều phối worker bất đồng bộ của `RDynamicWorkerPool`.
-- **Các bước thực hiện**:
-  1. Bơm dồn dập 50,000 bản ghi thô vào Kafka trong 1 giây.
-  2. Theo dõi nhịp xử lý và log của `rust-processor`.
-- **Kết quả kỳ vọng**:
-  - Thread pool tự động spawn song song các Worker Tasks giải tỏa đệm RAM.
-  - End-to-End Latency duy trì `< 5ms`.
+#### TC-11: Rỗng Mã Định Danh Người Chơi (`player_id_hash == ""`)
+- **Các bước**: Bơm event rỗng `player_id_hash`.
+- **Kết quả kỳ vọng**: Bị từ chối do thiếu khóa chính định danh.
 
-#### TC-4.2: Ngắt Mạch Hysteresis Circuit Breaker Khi Quá Tải CPU/RAM (`/proc` Watermarks)
-- **Mục tiêu**: Kiểm tra bộ ngắt mạch bảo vệ an toàn hệ thống `ResourceCircuitBreaker`.
-- **Các bước thực hiện**:
-  1. Giả lập ép tải CPU $\ge$ 80% hoặc RAM $\ge$ 85% trong container `rust-processor`.
-  2. Kiểm tra trạng thái Circuit Breaker.
-  3. Giảm tải tài nguyên xuống CPU $\le$ 75% và RAM $\le$ 80%.
-- **Kết quả kỳ vọng**:
-  - Khi vượt trần `80%/85%`, trạng thái ngắt sang `OPEN`, tạm dừng spawn R Worker mới.
-  - Khi hạ xuống `75%/80%` (Hysteresis Gap), trạng thái phục hồi về `CLOSED`, tiếp tục xử lý trơn tru.
+#### TC-12: Rỗng Mã Trận Đấu (`match_id == ""`)
+- **Các bước**: Bơm event thiếu `match_id`.
+- **Kết quả kỳ vọng**: Vi phạm ràng buộc liên kết trận đấu.
 
----
+#### TC-13: Vi Phạm Âm Sát Thương Gây Ra (`damage_dealt < 0`)
+- **Các bước**: Bơm event `damage_dealt = -150.0`.
+- **Kết quả kỳ vọng**: Loại bỏ do sát thương không thể âm.
 
-### Suite 5: Medallion Data Lake 2PC & R Feature Preprocessing Tests
+#### TC-14: Thứ Tự Thời Gian Sự Kiện Đến Quá Trễ (Late-Arriving Events > 24 Hours)
+- **Các bước**: Bơm event có timestamp lùi về 2 ngày trước.
+- **Kết quả kỳ vọng**: Đưa vào vùng xử lý event trễ hoặc từ chối nạp Bronze.
 
-#### TC-5.1: Kiểm Tra Nguyên Tắc Durable Two-Phase Commit (2PC)
-- **Mục tiêu**: Đảm bảo Kafka Offset chỉ được commit khi cả 2 phase ghi đĩa S3 đều thành công 100%.
-- **Các bước thực hiện**:
-  1. Kiểm tra luồng ghi Bronze Parquet (Phase 1) và Manifest JSON (Phase 2).
-- **Kết quả kỳ vọng**:
-  - Phase 1 (Data Parquet) & Phase 2 (Audit Manifest JSON) thành công 100%.
-  - Kafka Partition Offset chỉ commit SAU khi Phase 1 & 2 hoàn tất (Zero Data Loss 100%).
+#### TC-15: Chuỗi Payload JSON Sai Syntax Schema
+- **Các bước**: Bơm chuỗi JSON lỗi cấu trúc `{"event_id": 123...`.
+- **Kết quả kỳ vọng**: Lỗi deserialization, đẩy nguyên bản rác vào DLQ.
 
-#### TC-5.2: Khởi Chạy R Feature Engine & Nạp Tầng Gold Matrix
-- **Mục tiêu**: Kiểm tra khả năng thực thi của `r-processor` trên môi trường Linux container.
-- **Các bước thực hiện**:
-  1. Đọc tín hiệu Batch Manifest từ MinIO S3.
-  2. Thực thi `silver_preprocessor.R` và `gold_feature_engine.R`.
-- **Kết quả kỳ vọng**:
-  - Dữ liệu Silver Entities và Gold Feature Matrix được trích xuất thành công.
-  - Đóng gói Parquet ghi vào `gold/features/year=YYYY/...` trên MinIO S3.
+#### TC-16: Trùng Mã Sự Kiện Trong Cùng Batch (`event_id` Hash Collision)
+- **Các bước**: Bơm 2 bản ghi trùng hệt `event_id` trong cùng 1 Batch.
+- **Kết quả kỳ vọng**: `EventDeduplicator` loại bỏ 1 bản ghi trùng, duy trì đúng 1 bản ghi duy nhất.
+
+#### TC-17: Kiểm Tra Lưu Trữ Vùng Đệm Vi Phạm MinIO S3 DLQ (`bronze/invalid/`)
+- **Các bước**: Đọc dữ liệu từ bucket `fps-anticheat-datalake`.
+- **Kết quả kỳ vọng**: Xuất hiện file vi phạm tại `bronze/invalid/year=YYYY/month=MM/day=DD/invalid_records_*.json`.
 
 ---
 
-### Suite 6: Machine Learning Training, ONNX Export, IPC UDS & API Gateway Tests
+### 🟢 Domain 3: Real-Time Stream Engine & Rate Limiting (TC-18 -> TC-22)
 
-#### TC-6.1: Huấn Luyện Mô Hình LightGBM & Xuất Artifacts ONNX
-- **Mục tiêu**: Kiểm tra luồng tự động huấn luyện mô hình ML của `python-ml-worker`.
-- **Các bước thực hiện**:
-  1. Đọc dữ liệu Gold Feature Matrix từ MinIO.
-  2. Khởi chạy `trainer.py` và `onnx_exporter.py`.
-- **Kết quả kỳ vọng**:
-  - Mô hình LightGBM huấn luyện đạt độ chính xác mong muốn.
-  - File `model.onnx` và `model_metadata.json` được upload thành công lên MinIO bucket `pubg-models`.
+#### TC-18: Phát Sự Kiện Rải Rác 50 Events/Sec (`-stream-delay-ms=20`)
+- **Kết quả kỳ vọng**: Dữ liệu nạp đều đặn vào Kafka 50 bản ghi/giây, không bị dồn tụ.
 
-#### TC-6.2: Kiểm Thử Động Cơ Suy Luận Rust ONNX Engine Qua Unix Domain Socket (UDS IPC)
-- **Mục tiêu**: Kiểm thử tốc độ suy luận gian lận thời gian thực qua giao tiếp Socket IPC.
-- **Các bước thực hiện**:
-  1. Khởi chạy `rust-inference` server tạo UDS socket `/tmp/rust_inference.sock`.
-  2. Truyền vector đặc trưng player stat qua socket.
-- **Kết quả kỳ vọng**:
-  - Nhận phản hồi kết quả dự đoán (Risk Score & Classification) với **Latency < 1ms**.
+#### TC-19: Chịu Tải Bão Dữ Liệu Tốc Độ Cao (50,000 Events/Sec Stress Burst)
+- **Kết quả kỳ vọng**: Kafka & Rust Ingestor xử lý trơn tru, không cạn bộ nhớ RAM.
 
-#### TC-6.3: Kiểm Thử Toàn Diện Go REST API Gateway & Streamlit Dashboard Integration
-- **Mục tiêu**: Kiểm tra tính chính xác của dữ liệu phục vụ báo cáo và giao diện người dùng.
-- **Các bước thực hiện**:
-  1. Gửi HTTP Request tới `ml-go-api` gateway (`GET /api/v1/health`, `GET /api/v1/players/{id}`).
-  2. Kiểm tra truy vấn trên 4 trang Streamlit Dashboard.
-- **Kết quả kỳ vọng**:
-  - Tất cả các endpoint trả về `200 OK` JSON phản hồi chính xác.
-  - Giao diện Streamlit render mượt mà, không gặp lỗi Null Pointer hay ném Exception.
+#### TC-20: Kiểm Kiểm Trần Bộ Nhớ RAM `go-ingestor` (< 15MB RAM Ceiling)
+- **Kết quả kỳ vọng**: Đọc streaming `bufio.Scanner` duy trì RAM cố định `< 15 MB` dù nạp file 670MB.
+
+#### TC-21: Ngắt Tín Hiệu An Toàn Của OS (`SIGINT` / `SIGTERM` Graceful Shutdown)
+- **Kết quả kỳ vọng**: `go-ingestor` flush hết đệm dở dang và lưu checkpoint trước khi thoát.
+
+#### TC-22: Khôi Phục Vị Trí Nạp Khi Dừng Cưỡng Chế Container (`docker kill`)
+- **Kết quả kỳ vọng**: Khởi động lại container tự động đọc `checkpoints/go-replay/state.json` và resume chính xác dòng tiếp theo.
 
 ---
 
-## 🛠️ Hướng Dẫn Thực Thi Bộ Integration Test Cases Trên Docker
+### 🔵 Domain 4: Backpressure, Dynamic Pool & Hysteresis Circuit Breaker (TC-23 -> TC-26)
 
-### 1. Khởi chạy hạ tầng container tập trung:
+#### TC-23: Ngắt Mạch Khi Vượt Trần CPU (`CPU >= 80%` -> OPEN)
+- **Kết quả kỳ vọng**: Circuit Breaker chuyển trạng thái `OPEN`, tạm ngắt dispatch R Worker mới.
+
+#### TC-24: Ngắt Mạch Khi Vượt Trần RAM (`RAM >= 85%` -> OPEN)
+- **Kết quả kỳ vọng**: Tạm dừng spawn worker để bảo vệ bộ nhớ hệ thống khỏi bị crash.
+
+#### TC-25: Phục Hồi Nhịp Ngắt Khi Hạ Tải Hysteresis Gap (`CPU <= 75%` AND `RAM <= 80%` -> CLOSED)
+- **Kết quả kỳ vọng**: Trạng thái phục hồi về `CLOSED`, tiếp tục spawn R Worker bình thường.
+
+#### TC-26: Thử Nghiệm Chống Dao Động Đóng/Mở Liên Tục (Anti-Flapping Stability)
+- **Kết quả kỳ vọng**: Khoảng trễ Hysteresis Gap 5% triệt tiêu hoàn toàn hiện tượng Flapping đóng mở liên tục.
+
+---
+
+### 🟣 Domain 5: Durable 2PC Data Lake & Hive Partitioning (TC-27 -> TC-30)
+
+#### TC-27: Phase 1 Ghi Parquet Data File Thành Công
+- **Kết quả kỳ vọng**: File Parquet nén Zstandard được ghi thành công lên S3 `bronze/player-stat/...`.
+
+#### TC-28: Phase 2 Ghi Audit Manifest JSON & Khớp Checksum SHA-256
+- **Kết quả kỳ vọng**: File Manifest JSON chứa chính xác SHA-256 checksum của file Parquet ở Phase 1.
+
+#### TC-29: Cam Kết Đảm Bảo Commit Kafka Offset Nguyên Tử (Atomic Commitment)
+- **Kết quả kỳ vọng**: Kafka Offset chỉ được commit SAU khi Phase 1 và Phase 2 đều trả về thành công 100%.
+
+#### TC-30: Kiểm Tra Cấu Trúc Hive Partitioning Đường Dẫn MinIO
+- **Kết quả kỳ vọng**: Đường dẫn tuân thủ chuẩn `bronze/player-stat/year=YYYY/month=MM/day=DD/data_*.parquet`.
+
+---
+
+### 🟠 Domain 6: R Feature Preprocessing & Warm Daemon Pool (TC-31 -> TC-34)
+
+#### TC-31: Thực Thi Tiến Trình Subprocess R Cách Ly Hoàn Toàn
+- **Kết quả kỳ vọng**: Lỗi trong script R không làm ảnh hưởng hay sụp đổ tiến trình nạp Rust Processor chính.
+
+#### TC-32: Làm Sạch Dữ Liệu Tầng Silver Entities (`silver_preprocessor.R`)
+- **Kết quả kỳ vọng**: Xuất ra Silver entities Parquet sạch 100% null/rác.
+
+#### TC-33: Trích Xuất Ma Trận Đặc Trưng Gold Matrix (`gold_feature_engine.R`)
+- **Kết quả kỳ vọng**: Ghi ma trận Gold features vào S3 `gold/features/year=YYYY/...`.
+
+#### TC-34: Tự Động Thu Hồi 100% RAM Khi Hết 5 Giây Idle (`5s Idle Timeout Exit 0`)
+- **Kết quả kỳ vọng**: Sau 5 giây ngưng có batch mới, `daemon_worker.R` thoát (`Exit 0`), Linux Kernel thu hồi 100% RAM.
+
+---
+
+### 🟤 Domain 7: ML Model Training, ONNX Export & IPC UDS Engine (TC-35 -> TC-38)
+
+#### TC-35: Tự Động Huấn Luyện Mô Hình LightGBM Từ Dữ Liệu Gold Matrix
+- **Kết quả kỳ vọng**: Worker Python đọc dữ liệu Gold, huấn luyện thành công mô hình phân loại gian lận.
+
+#### TC-36: Export Mô Hình Sang Chuẩn ONNX & Upload MinIO (`pubg-models/model.onnx`)
+- **Kết quả kỳ vọng**: File `model.onnx` và `model_metadata.json` được upload thành công lên MinIO.
+
+#### TC-37: Đo Đạc Độ Trễ Suy Luận Qua Unix Domain Socket (`/tmp/rust_inference.sock`)
+- **Kết quả kỳ vọng**: Động cơ Rust ONNX phản hồi kết quả dự đoán với **Latency < 1ms**.
+
+#### TC-38: Bảo Vệ An Toàn Khi Cập Nhật Mô Hình Mới (Hot-Reload Fallback Safety)
+- **Kết quả kỳ vọng**: Khi upload phiên bản mô hình mới, UDS Engine tự động nạp lại mà không bị sụp socket.
+
+---
+
+### ⚪ Domain 8: REST API Gateway & Streamlit UI Integration (TC-39 -> TC-42)
+
+#### TC-39: Kiểm Kiểm HTTP Phản Hồi Từ API Gateway (`GET /api/v1/health`, `GET /api/v1/players/{id}`)
+- **Kết quả kỳ vọng**: Trả về `200 OK` JSON đúng cấu trúc schema.
+
+#### TC-40: Kiểm Thử Chịu Tải Đồng Thời REST API (Concurrent HTTP Requests)
+- **Kết quả kỳ vọng**: Phục vụ hàng trăm request đồng thời không bị lỗi Null Pointer hay 500 Internal Error.
+
+#### TC-41: Hiển Thị Trang Overview & Preprocessing Before vs After Trên Streamlit
+- **Kết quả kỳ vọng**: Biểu đồ so sánh 1-1 trước và sau khi làm sạch dữ liệu hiển thị chính xác.
+
+#### TC-42: Hiển Thị Trang Player Analysis & Risk Score Evidence
+- **Kết quả kỳ vọng**: Render chính xác chỉ số người chơi, risk score và top evidence features mà không gặp exception.
+
+---
+
+## 🛠️ Hướng Dẫn Kích Hoạt Bộ 42 Integration Test Cases Trên Docker
+
+### 1. Khởi chạy toàn bộ hạ tầng Container Services:
 ```bash
 docker compose -f deployments/compose/docker-compose.yml up -d
 ```
 
-### 2. Kiểm tra trạng thái sức khỏe (Health Check) của các container services:
+### 2. Kiểm tra trạng thái sức khỏe toàn bộ Containers:
 ```bash
 docker compose -f deployments/compose/docker-compose.yml ps
 ```
 
-### 3. Theo dõi log thời gian thực kiểm tra toàn bộ luồng pipeline end-to-end:
+### 3. Xem log thời gian thực kiểm tra kết quả thực thi:
 ```bash
 docker compose -f deployments/compose/docker-compose.yml logs -f
 ```
