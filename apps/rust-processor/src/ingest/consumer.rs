@@ -57,6 +57,55 @@ impl KafkaConsumer {
         })
     }
 
+    /// Verify_topic_exists kiểm tra topic tồn tại trên Kafka broker tại startup (TC-04 Fix)
+    /// Mục đích: Phát hiện sai tên topic TRƯỚC khi vào consume loop vô hạn
+    /// Cơ chế: fetch_metadata với timeout ngắn (10s) — nếu topic không có partition → Fail-Close ngay
+    pub async fn verify_topic_exists(&self) -> Result<()> {
+        use rdkafka::consumer::Consumer;
+        use std::time::Duration;
+
+        // fetch_metadata gọi Kafka broker để lấy thông tin partition của topic cụ thể
+        // Timeout 10 giây để tránh treo vô hạn khi broker không reachable
+        let metadata = self.consumer
+            .fetch_metadata(Some(&self.topic), Duration::from_secs(10))
+            .map_err(|e| AppError::Kafka(format!(
+                "Không thể fetch metadata topic '{}' từ Kafka broker: {} (Fail-Close Triggered)",
+                self.topic, e
+            )))?;
+
+        // Kiểm tra topic có tồn tại không (có ít nhất 1 partition)
+        let topic_meta = metadata
+            .topics()
+            .iter()
+            .find(|t| t.name() == self.topic);
+
+        match topic_meta {
+            None => {
+                // Topic không xuất hiện trong metadata → không tồn tại
+                Err(AppError::Kafka(format!(
+                    "Topic '{}' không tồn tại trên Kafka broker (Fail-Close Triggered)",
+                    self.topic
+                )))
+            }
+            Some(topic) if topic.partitions().is_empty() => {
+                // Topic tồn tại nhưng không có partition → lỗi cấu hình broker
+                Err(AppError::Kafka(format!(
+                    "Topic '{}' tồn tại nhưng không có partition nào (Fail-Close Triggered)",
+                    self.topic
+                )))
+            }
+            Some(topic) => {
+                info!(
+                    topic = %self.topic,
+                    partition_count = topic.partitions().len(),
+                    "Topic Kafka đã xác minh tồn tại và có đủ partition"
+                );
+                Ok(())
+            }
+        }
+    }
+
+
     /// Recv_message nhận tin nhắn tiếp theo từ Kafka Stream, giải mã JSON an toàn (Resilient Loop)
     pub async fn recv_message(&self) -> Result<Option<ConsumedMessage>> {
         match self.consumer.recv().await {

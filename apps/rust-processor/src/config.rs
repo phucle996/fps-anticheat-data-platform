@@ -14,12 +14,13 @@ pub struct Config {
     pub minio_secret_key: String,   // Secret Key của MinIO S3
     pub batch_size: usize,          // Ngưỡng số lượng bản ghi cho mỗi batch (vd: 1000)
     pub flush_interval_ms: u64,     // Ngưỡng thời gian flush batch theo ms (vd: 1000)
-    pub r_max_workers: usize,       // Số lượng R Worker song song tối đa (phát hiện từ CPU Cores hoặc R_MAX_WORKERS)
+    pub r_max_workers: usize,       // Số lượng R Worker song song tối đa
 }
 
 impl Config {
-    /// From_env nạp biến môi trường Fail-Close 100% (Zero Fallback)
+    /// From_env nạp biến môi trường Fail-Close 100% (Zero Fallback, Zero Default cho required vars)
     pub fn from_env() -> Result<Self> {
+        // --- Biến bắt buộc: Không tồn tại hoặc rỗng → Fail-Close ngay lập tức ---
         let kafka_brokers = Self::get_required_env("KAFKA_BROKERS")?;
         let kafka_raw_topic = Self::get_required_env("KAFKA_RAW_TOPIC")?;
         let kafka_group_id = Self::get_required_env("KAFKA_GROUP_ID")?;
@@ -28,25 +29,25 @@ impl Config {
         let minio_access_key = Self::get_required_env("MINIO_ACCESS_KEY")?;
         let minio_secret_key = Self::get_required_env("MINIO_SECRET_KEY")?;
 
-        let batch_size = env::var("BATCH_SIZE")
-            .ok()
-            .and_then(|v| v.parse().ok())
-            .unwrap_or(1000);
+        // Validate URL format: MINIO_ENDPOINT phải bắt đầu bằng http:// hoặc https://
+        // Ngăn panic RelativeUrlWithoutBase khi ObjectStore builder nhận empty/invalid URL
+        if !minio_endpoint.starts_with("http://") && !minio_endpoint.starts_with("https://") {
+            return Err(AppError::Config(format!(
+                "MINIO_ENDPOINT không hợp lệ: '{}' — phải bắt đầu bằng 'http://' hoặc 'https://' (Fail-Close Triggered)",
+                minio_endpoint
+            )));
+        }
 
-        let flush_interval_ms = env::var("FLUSH_INTERVAL_MS")
-            .ok()
-            .and_then(|v| v.parse().ok())
-            .unwrap_or(1000);
+        // --- Biến tùy chọn có giá trị mặc định: parse explicit, Fail-Close nếu sai định dạng ---
+        // TC-06 Fix: Không dùng .unwrap_or() silent — parse thủ công để ném lỗi rõ ràng
+        let batch_size = Self::parse_optional_usize("BATCH_SIZE", 1000)?;
+        let flush_interval_ms = Self::parse_optional_u64("FLUSH_INTERVAL_MS", 1000)?;
 
-        // Tự động phát hiện số CPU logical cores của hệ thống nếu không khai báo R_MAX_WORKERS
+        // R_MAX_WORKERS: Tự động phát hiện số CPU logical cores nếu không khai báo
         let default_cpus = std::thread::available_parallelism()
             .map(|n| n.get())
             .unwrap_or(4);
-
-        let r_max_workers = env::var("R_MAX_WORKERS")
-            .ok()
-            .and_then(|v| v.parse().ok())
-            .unwrap_or(default_cpus);
+        let r_max_workers = Self::parse_optional_usize("R_MAX_WORKERS", default_cpus)?;
 
         Ok(Self {
             kafka_brokers,
@@ -62,13 +63,55 @@ impl Config {
         })
     }
 
-    /// Helper get_required_env bắt buộc biến môi trường phải tồn tại
+    /// Helper get_required_env bắt buộc biến môi trường phải tồn tại VÀ không rỗng
     fn get_required_env(key: &str) -> Result<String> {
-        env::var(key).map_err(|_| {
+        let value = env::var(key).map_err(|_| {
             AppError::Config(format!(
                 "Thiếu biến môi trường bắt buộc '{}' (Fail-Close Triggered)",
                 key
             ))
-        })
+        })?;
+
+        // Kiểm tra thêm: giá trị không được rỗng sau khi trim
+        let trimmed = value.trim().to_string();
+        if trimmed.is_empty() {
+            return Err(AppError::Config(format!(
+                "Biến môi trường bắt buộc '{}' không được để trống (Fail-Close Triggered)",
+                key
+            )));
+        }
+
+        Ok(trimmed)
+    }
+
+    /// Helper parse_optional_usize parse biến usize tùy chọn — Fail-Close nếu khai báo sai định dạng
+    fn parse_optional_usize(key: &str, default: usize) -> Result<usize> {
+        match env::var(key) {
+            // Không khai báo → dùng giá trị mặc định (hành vi tùy chọn hợp lệ)
+            Err(_) => Ok(default),
+            // Có khai báo nhưng rỗng → dùng mặc định
+            Ok(val) if val.trim().is_empty() => Ok(default),
+            // Có khai báo với giá trị → parse bắt buộc thành công, Fail-Close nếu sai định dạng
+            Ok(val) => val.trim().parse::<usize>().map_err(|_| {
+                AppError::Config(format!(
+                    "Biến '{}' có giá trị '{}' không hợp lệ — phải là số nguyên dương (Fail-Close Triggered)",
+                    key, val.trim()
+                ))
+            }),
+        }
+    }
+
+    /// Helper parse_optional_u64 parse biến u64 tùy chọn — Fail-Close nếu khai báo sai định dạng
+    fn parse_optional_u64(key: &str, default: u64) -> Result<u64> {
+        match env::var(key) {
+            Err(_) => Ok(default),
+            Ok(val) if val.trim().is_empty() => Ok(default),
+            Ok(val) => val.trim().parse::<u64>().map_err(|_| {
+                AppError::Config(format!(
+                    "Biến '{}' có giá trị '{}' không hợp lệ — phải là số nguyên dương (Fail-Close Triggered)",
+                    key, val.trim()
+                ))
+            }),
+        }
     }
 }

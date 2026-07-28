@@ -7,7 +7,7 @@ use crate::worker::RDynamicWorkerPool;
 use chrono::Utc;
 use std::collections::HashMap;
 use std::time::Duration;
-use tracing::{info, warn};
+use tracing::{error, info, warn};
 
 /// StreamProcessorApp đóng gói toàn bộ quy trình Ingest -> Validate -> Dedup -> Arrow -> Parquet -> MinIO -> Offset Commit -> Dynamic R Pool
 pub struct StreamProcessorApp {
@@ -21,7 +21,10 @@ pub struct StreamProcessorApp {
 impl StreamProcessorApp {
     /// New khởi tạo StreamProcessorApp và khởi tạo kết nối hạ tầng
     pub fn new(config: Config) -> Result<Self> {
+        // TC-04 Fix: Validate Kafka topic tồn tại tại startup (sync check trước khi subscribe)
+        // KafkaConsumer::new() đã subscribe — nếu lỗi subscribe trả về Err ngay
         let consumer = KafkaConsumer::new(&config)?;
+
         let writer = MinioWriter::new(&config)?;
         let r_pool = RDynamicWorkerPool::new(config.r_max_workers);
 
@@ -48,6 +51,29 @@ impl StreamProcessorApp {
 
     /// Run khởi chạy vòng lặp async tokio lắng nghe sự kiện Kafka và tín hiệu Graceful Shutdown
     pub async fn run(&mut self) -> Result<()> {
+        // TC-03 Fix: S3 Pre-flight Connectivity Check — probe bucket trước khi consume
+        // Nếu sai creds hoặc endpoint không thể reach → ném lỗi ngay, Fail-Close trước consume loop
+        info!("Thực thi S3 Pre-flight Connectivity Check (TC-03 Fail-Close Guard)...");
+        self.writer.preflight_check().await.map_err(|e| {
+            error!(
+                error = %e,
+                "S3 Pre-flight Check thất bại — Dừng chương trình trước khi consume Kafka (Fail-Close Triggered)"
+            );
+            e
+        })?;
+        info!("S3 Pre-flight Check thành công — MinIO S3 kết nối và xác thực OK");
+
+        // TC-04 Fix: Kafka Topic Existence Check — verify topic tồn tại trước khi consume
+        info!("Thực thi Kafka Topic Existence Check (TC-04 Fail-Close Guard)...");
+        self.consumer.verify_topic_exists().await.map_err(|e| {
+            error!(
+                error = %e,
+                "Kafka Topic Existence Check thất bại — Dừng chương trình (Fail-Close Triggered)"
+            );
+            e
+        })?;
+        info!("Kafka Topic Existence Check thành công — Topic đã tồn tại trên Broker");
+
         let _ = self.writer.ensure_datalake_structure().await;
         info!("Bắt đầu vòng lặp Consumer Loop trong StreamProcessorApp...");
 

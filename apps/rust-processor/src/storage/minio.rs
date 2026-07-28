@@ -43,6 +43,35 @@ impl MinioWriter {
         Ok(writer)
     }
 
+    /// Preflight_check thực hiện S3 connectivity probe tại startup (TC-03 Fix)
+    /// Mục đích: Phát hiện sai creds, endpoint không reach, bucket không tồn tại TRƯỚC khi consume Kafka
+    /// Cơ chế: HEAD request vào .preflight-probe — NotFound là OK (auth thành công), còn lại → Fail-Close
+    pub async fn preflight_check(&self) -> Result<()> {
+        use object_store::path::Path as ObjectPath;
+
+        // Thực hiện HEAD request để trigger S3 authentication
+        // Kết quả:
+        // - Ok(_)          → File tồn tại, auth OK
+        // - NotFound       → File không tồn tại nhưng auth OK (bình thường)
+        // - AccessDenied   → Sai creds → Fail-Close
+        // - Network error  → Endpoint không reach → Fail-Close
+        let probe_path = ObjectPath::from(".preflight-probe");
+        match self.store.head(&probe_path).await {
+            Ok(_) => Ok(()),
+            Err(object_store::Error::NotFound { .. }) => {
+                // NotFound = request đến được MinIO và auth thành công
+                Ok(())
+            }
+            Err(e) => {
+                // Lỗi khác: AccessDenied, SignatureDoesNotMatch, Network unreachable → Fail-Close
+                Err(AppError::Storage(format!(
+                    "S3 Pre-flight Check thất bại — Không thể kết nối hoặc xác thực MinIO S3: {} (Fail-Close Triggered)",
+                    e
+                )))
+            }
+        }
+    }
+
     /// Ensure_datalake_structure khởi tạo tự động các thư mục móng Medallion Data Lake nếu chưa có
     pub async fn ensure_datalake_structure(&self) -> Result<()> {
         let keep_paths = [
