@@ -26,12 +26,12 @@ func NewKaggleClient(username, apiKey string) *KaggleClient {
 	}
 }
 
-// DownloadDatasetStream mở luồng HTTP Stream tải file zip của Kaggle Dataset
-func (k *KaggleClient) DownloadDatasetStream(ctx context.Context, datasetSlug string) (io.ReadCloser, error) {
+// DownloadDatasetStream mở luồng HTTP Stream tải file zip của Kaggle Dataset và trả về ContentLength
+func (k *KaggleClient) DownloadDatasetStream(ctx context.Context, datasetSlug string) (io.ReadCloser, int64, error) {
 	url := fmt.Sprintf("https://www.kaggle.com/api/v1/datasets/download/%s", datasetSlug)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		return nil, fmt.Errorf("tạo HTTP request thất bại: %w", err)
+		return nil, 0, fmt.Errorf("tạo HTTP request thất bại: %w", err)
 	}
 
 	// Xác thực Basic Auth với Kaggle Username & API Key
@@ -39,13 +39,13 @@ func (k *KaggleClient) DownloadDatasetStream(ctx context.Context, datasetSlug st
 
 	resp, err := k.httpClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("gửi request tới Kaggle API thất bại: %w", err)
+		return nil, 0, fmt.Errorf("gửi request tới Kaggle API thất bại: %w", err)
 	}
 
 	if resp.StatusCode != http.StatusOK {
 		resp.Body.Close()
-		return nil, fmt.Errorf("kaggle API trả về mã lỗi HTTP: %d %s", resp.StatusCode, resp.Status)
+		return nil, 0, fmt.Errorf("kaggle API trả về mã lỗi HTTP: %d %s", resp.StatusCode, resp.Status)
 	}
 
-	return resp.Body, nil
+	return resp.Body, resp.ContentLength, nil
 }

@@ -25,13 +25,16 @@ check-deps:
 	@command -v python3 >/dev/null 2>&1 && echo "  - Python3: OK" || echo "  - Python3: Chưa cài đặt"
 	@command -v docker >/dev/null 2>&1 && echo "  - Docker: OK" || echo "  - Docker: Chưa cài đặt"
 
-## init: Khởi tạo file .env, bật containers hạ tầng và tạo S3 Buckets / Kafka Topics / 9 tầng Medallion
+## init: Khởi tạo file .env, bật toàn bộ stack Docker Containers và khởi tạo S3 Buckets / Kafka Topics / Medallion Data Lake
 init:
+	# Dọn dẹp các container mồ côi cũ (name=pubg-* hoặc command=/app/rust-processor) trước khi tạo mới để tránh lỗi conflict container name
+	@echo "[+] 0. Dọn dẹp các container mồ côi cũ trước khi khởi tạo..."
+	@docker ps -a --format '{{.ID}} {{.Command}} {{.Names}}' | grep -E '/app/rust-processor|pubg-' | awk '{print $$1}' | xargs -r docker rm -f > /dev/null 2>&1 || true
 	@echo "[+] 1. Khởi tạo file môi trường .env từ .env.example..."
 	@if [ ! -f .env ]; then cp .env.example .env; fi
-	@echo "[+] 2. Khởi chạy container hạ tầng Kafka, MinIO & Kafka UI..."
-	docker compose -f deployments/compose/docker-compose.yml up -d kafka minio kafka-ui
-	@echo "[+] 3. Đợi container hạ tầng sẵn sàng..."
+	@echo "[+] 2. Khởi chạy toàn bộ stack Docker Containers (Kafka, MinIO, Kafka UI, Rust Processor, ML Platform, Streamlit)..."
+	docker compose -f deployments/compose/docker-compose.yml up -d --build
+	@echo "[+] 3. Đợi container hạ tầng và ứng dụng sẵn sàng..."
 	@sleep 5
 	@echo "[+] 4. Khởi tạo 3 Buckets S3 & 9 tầng thư mục Medallion Data Lake trên MinIO..."
 	@docker run --rm --network pubg-platform-net -e MINIO_ENDPOINT="http://minio:9000" -v $(PWD)/scripts/init_minio_datalake.sh:/init.sh --entrypoint /bin/sh minio/mc -c "mc alias set localminio http://minio:9000 minioadmin minioadmin && /init.sh" > /dev/null 2>&1 || true
@@ -42,7 +45,20 @@ init:
 	@docker exec pubg-kafka kafka-topics --bootstrap-server localhost:9092 --create --if-not-exists --topic pubg.v1.invalid --partitions 1 --replication-factor 1 > /dev/null 2>&1 || true
 	@docker exec pubg-kafka kafka-topics --bootstrap-server localhost:9092 --create --if-not-exists --topic pubg.v1.dataset.gold.ready --partitions 1 --replication-factor 1 > /dev/null 2>&1 || true
 	@docker exec pubg-kafka kafka-topics --bootstrap-server localhost:9092 --create --if-not-exists --topic pubg.v1.ml.model.ready --partitions 1 --replication-factor 1 > /dev/null 2>&1 || true
-	@echo "  ✓ Khởi tạo môi trường hoàn tất 100%!"
+	@echo "[+] 6. Tải và đồng bộ Dataset thực tế lên MinIO S3 (Hiển thị Progress Bar %)..."
+	docker run --rm --network pubg-platform-net \
+		-v $(PWD)/apps/go-ingestor:/app -w /app \
+		-e KAFKA_BROKERS="kafka:9092" \
+		-e KAFKA_RAW_TOPIC="pubg.v1.player-stat.raw" \
+		-e KAFKA_INVALID_TOPIC="pubg.v1.invalid" \
+		-e MINIO_ENDPOINT="minio:9000" \
+		-e MINIO_ACCESS_KEY="minioadmin" \
+		-e MINIO_SECRET_KEY="minioadmin" \
+		-e MINIO_BUCKET="fps-anticheat-datalake" \
+		-e KAGGLE_DATASET_SLUG="skihikingkevin/pubg-match-deaths" \
+		-e KAGGLE_SELECTED_FILE="deaths.csv" \
+		golang:1.26-alpine go run ./cmd/dataset-sync
+	@echo "  ✓ Khởi tạo toàn bộ môi trường hoàn tất 100%!"
 
 ## start: Khởi chạy toàn bộ hạ tầng Docker Compose stack
 start:
@@ -52,13 +68,12 @@ start:
 ## up: Alias của make start
 up: start
 
-## run: Khởi chạy kịch bản Runbook End-to-End với dữ liệu thực tế từ Kaggle CSV
+## run: Thực thi Replay ingest liên tục (Resume từ Checkpoint nếu đã ngắt trước đó)
 run:
-	@echo "[+] 1. Checking infrastructure containers..."
-	@docker ps | grep -q "pubg-kafka" || (echo "[ERROR] pubg-kafka container is not running" && exit 1)
-	@docker ps | grep -q "pubg-minio" || (echo "[ERROR] pubg-minio container is not running" && exit 1)
-	@echo "[+] 2. Replay CSV dataset to Kafka topic pubg.v1.player-stat.raw..."
-	@docker run --rm --network pubg-platform-net \
+	@echo "[+] 1. Kích hoạt Go Ingestor Replay Engine (Checkpoint Resume Mode)..."
+	@echo "    ℹ️  Nếu đã chạy trước đó, tiến trình sẽ tự động Resume từ vị trí checkpoint cuối cùng."
+	@echo "    ℹ️  Nếu muốn chạy lại từ đầu, hãy dùng: make run-reset"
+	docker run --rm --network pubg-platform-net \
 		-v $(PWD)/apps/go-ingestor:/app -w /app \
 		-e KAFKA_BROKERS="kafka:9092" \
 		-e MINIO_ENDPOINT="minio:9000" \
@@ -69,28 +84,27 @@ run:
 		-e KAGGLE_SELECTED_FILE="deaths.csv" \
 		-e KAFKA_RAW_TOPIC="pubg.v1.player-stat.raw" \
 		-e KAFKA_INVALID_TOPIC="pubg.v1.invalid" \
-		golang:1.26-alpine go run ./cmd/replay -limit=100 -stream-delay-ms=10 -dry-run=false -disable-checkpoint=true > /dev/null 2>&1 || true
-	@echo "[+] 3. Stream Processing & 2PC Data Lake Upload via Rust Container..."
-	@docker run --rm --network pubg-platform-net \
+		golang:1.26-alpine go run ./cmd/replay -limit=0 -stream-delay-ms=0 -dry-run=false -disable-checkpoint=false
+	@echo "[+] 2. Kích hoạt R Processor Medallion ETL (Silver & Gold Feature Engine)..."
+	@cd apps/rust-processor/r-processor && Rscript tests/test_silver_preprocessor.R > /dev/null 2>&1 && Rscript tests/test_gold_feature_engine.R > /dev/null 2>&1 && Rscript tests/test_eda_analyzer.R > /dev/null 2>&1
+	@echo "  ✓ Phát dữ liệu thực tế và flush xuống S3 Data Lake hoàn tất 100%!"
+
+## run-reset: Xóa Checkpoint cũ và phát lại toàn bộ dữ liệu từ đầu (dòng 1)
+run-reset:
+	@echo "[+] 🔄 Xóa Checkpoint cũ, phát lại toàn bộ CSV từ dòng 1..."
+	docker run --rm --network pubg-platform-net \
+		-v $(PWD)/apps/go-ingestor:/app -w /app \
 		-e KAFKA_BROKERS="kafka:9092" \
-		-e KAFKA_RAW_TOPIC="pubg.v1.player-stat.raw" \
-		-e KAFKA_GROUP_ID="runbook-e2e-group" \
-		-e MINIO_ENDPOINT="http://minio:9000" \
+		-e MINIO_ENDPOINT="minio:9000" \
 		-e MINIO_ACCESS_KEY="minioadmin" \
 		-e MINIO_SECRET_KEY="minioadmin" \
 		-e MINIO_BUCKET="fps-anticheat-datalake" \
-		-e BATCH_SIZE=50 \
-		-e FLUSH_INTERVAL_MS=1000 \
-		pubg-rust-processor:latest & PID_RUST=$$! ; sleep 8 ; kill $$PID_RUST > /dev/null 2>&1 || true
-	# Đã di chuyển r-processor thành subfolder thuộc apps/rust-processor/r-processor
-	@echo "[+] 4. R Processor Medallion ETL (Silver & Gold Feature Engine)..."
-	@cd apps/rust-processor/r-processor && Rscript tests/test_silver_preprocessor.R > /dev/null 2>&1 && Rscript tests/test_gold_feature_engine.R > /dev/null 2>&1 && Rscript tests/test_eda_analyzer.R > /dev/null 2>&1
-	@echo "[+] 5. ML Training & Inference Engine Verification..."
-	@cd apps/ml-platform/python-ml-worker && venv/bin/python -m pytest > /dev/null 2>&1
-	@cd apps/ml-platform/rust-inference && cargo test > /dev/null 2>&1
-	@cd apps/ml-platform/go-api && go test ./... > /dev/null 2>&1
-	@cd apps/streamlit-dashboard && venv/bin/python -m pytest > /dev/null 2>&1
-	@echo "  ✓ Kịch bản Runbook End-to-End đã chạy thành công 100%!"
+		-e KAGGLE_DATASET_SLUG="skihikingkevin/pubg-match-deaths" \
+		-e KAGGLE_SELECTED_FILE="deaths.csv" \
+		-e KAFKA_RAW_TOPIC="pubg.v1.player-stat.raw" \
+		-e KAFKA_INVALID_TOPIC="pubg.v1.invalid" \
+		golang:1.26-alpine go run ./cmd/replay -limit=0 -stream-delay-ms=0 -dry-run=false -disable-checkpoint=false -reset-checkpoint=true
+	@echo "  ✓ Reset hoàn tất, phát lại dữ liệu từ đầu thành công!"
 
 ## stop: Tạm dừng toàn bộ các containers đang chạy (bảo toàn volume dữ liệu)
 stop:
@@ -109,6 +123,9 @@ restart:
 purge:
 	@echo "[+] Dừng và dọn dẹp triệt để Docker Containers & Data Volumes..."
 	docker compose -f deployments/compose/docker-compose.yml down -v --remove-orphans
+	# Xóa sạch tất cả các container mồ côi (standalone containers) khởi tạo trực tiếp qua `docker run` hoặc test suite
+	@docker ps -a --format '{{.ID}} {{.Command}} {{.Names}}' | grep -E '/app/rust-processor|pubg-' | awk '{print $$1}' | xargs -r docker rm -f > /dev/null 2>&1 || true
+	@docker network rm pubg-platform-net > /dev/null 2>&1 || true
 	@echo "[+] Xóa sạch cache, log và file tạm local..."
 	@rm -rf bin/ target/ tmp/ *.log apps/rust-processor/target apps/ml-platform/rust-inference/target
 	@find . -name "*.tmp" -type f -delete

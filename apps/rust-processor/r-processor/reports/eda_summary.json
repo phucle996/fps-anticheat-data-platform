@@ -98,5 +98,5 @@
   },
   "outliers_count": 1,
   "selected_features_for_model": ["kills_per_minute", "damage_per_minute", "headshot_ratio", "damage_per_kill", "movement_per_minute", "performance_versus_lobby"],
-  "generated_at": "2026-07-28T08:55:04Z"
+  "generated_at": "2026-07-28T12:46:15Z"
 }

@@ -188,6 +188,8 @@ services:
     environment:
       - HTTP_PORT=8081
       - IPC_SOCKET_PATH=/tmp/rust_inference.sock
+      - MODEL_DIR=models/v1
+      - PYTHONPATH=/app/python-ml-worker
       - KAFKA_BROKERS=kafka:9092
       - KAFKA_TOPIC_GOLD=pubg.v1.dataset.gold.ready
       - KAFKA_TOPIC_MODEL=pubg.v1.ml.model.ready
@@ -214,7 +216,8 @@ services:
       minio:
         condition: service_healthy
     environment:
-      - GO_API_URL=http://localhost:8081
+      # Sử dụng container name 'ml-platform' cho giao tiếp nội bộ Docker Network thay vì 'localhost'
+      - GO_API_URL=http://ml-platform:8081
       - MINIO_ENDPOINT=http://minio:9000
       - MINIO_BUCKET_DATA=fps-anticheat-datalake
       - MINIO_ACCESS_KEY=minioadmin

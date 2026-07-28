@@ -9,10 +9,10 @@ import (
 
 // PredictRequest định nghĩa cấu trúc Yêu cầu dự báo truyền qua Unix Domain Socket IPC
 type PredictRequest struct {
-	Op       string     `json:"op"`        // Operation name (vd: "predict")
-	MatchID  string     `json:"match_id"`  // Mã trận đấu
-	PlayerID string     `json:"player_id"` // Mã người chơi
-	Features [6]float32 `json:"features"`  // 6 đặc trưng Gold Feature Contract
+	Op       string    `json:"op"`        // Operation name (vd: "predict")
+	MatchID  string    `json:"match_id"`  // Mã trận đấu
+	PlayerID string    `json:"player_id"` // Mã người chơi
+	Features []float32 `json:"features"`  // Các đặc trưng Gold Feature Contract (Linh hoạt độ dài 6-11 đặc trưng)
 }
 
 // EvidenceItem đại diện cho 1 bằng chứng chi tiết về đặc trưng nghi vấn gian lận
@@ -29,15 +29,25 @@ type EvidenceMatrix struct {
 	TopEvidenceFeatures []EvidenceItem `json:"top_evidence_features"`
 }
 
+// DecisionOutcome định nghĩa kết quả quyết định xử lý gian lận từ Decision Engine
+type DecisionOutcome struct {
+	Action        string `json:"action"`         // Hành động xử lý ("CLEAR", "WATCHLIST", "ESCALATE_TO_MODERATOR", "SUSPEND_ACCOUNT", "PERMANENT_BAN")
+	Priority      string `json:"priority"`       // Mức độ ưu tiên ("LOW", "MEDIUM", "HIGH", "URGENT", "CRITICAL")
+	Reason        string `json:"reason"`         // Lý do giải thích chi tiết
+	PolicyRule    string `json:"policy_rule"`    // Quy tắc khớp điều kiện
+	PolicyVersion string `json:"policy_version"` // Phiên bản policy YAML áp dụng
+}
+
 // PredictResponse định nghĩa cấu trúc Phản hồi kết quả dự báo từ Rust Inference Engine
 type PredictResponse struct {
-	Status         string         `json:"status"`          // Trạng thái ("ok" hoặc "error")
-	MatchID        string         `json:"match_id"`        // Mã trận đấu
-	PlayerID       string         `json:"player_id"`       // Mã người chơi
-	RiskScore      float32        `json:"risk_score"`      // Anomaly Risk Score (0.0 - 1.0)
-	RiskLevel      string         `json:"risk_level"`      // Nhãn Risk Level ("LOW", "MEDIUM", "HIGH", "CRITICAL")
-	ModelVersion   string         `json:"model_version"`   // Phiên bản ONNX Model ("v1")
-	EvidenceMatrix EvidenceMatrix `json:"evidence_matrix"` // Bằng chứng gian lận Evidence Matrix
+	Status          string           `json:"status"`           // Trạng thái ("ok" hoặc "error")
+	MatchID         string           `json:"match_id"`         // Mã trận đấu
+	PlayerID        string           `json:"player_id"`        // Mã người chơi
+	RiskScore       float32          `json:"risk_score"`       // Anomaly Risk Score (0.0 - 1.0)
+	RiskLevel       string           `json:"risk_level"`       // Nhãn Risk Level ("LOW", "MEDIUM", "HIGH", "CRITICAL")
+	ModelVersion    string           `json:"model_version"`    // Phiên bản ONNX Model ("v1")
+	EvidenceMatrix  EvidenceMatrix   `json:"evidence_matrix"`  // Bằng chứng gian lận Evidence Matrix
+	DecisionOutcome *DecisionOutcome `json:"decision_outcome"` // Kết quả quyết định xử lý từ Decision Engine
 }
 
 // Client quản lý kết nối IPC Client Unix Domain Socket tới Rust Inference Engine

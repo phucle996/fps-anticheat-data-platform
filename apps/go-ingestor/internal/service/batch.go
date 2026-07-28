@@ -5,43 +5,48 @@ import (
 	"encoding/json"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
+	"github.com/sirupsen/logrus"
 	"pubg-anti-cheat/go-ingestor/internal/contract"
 )
 
 // BatchConfig định nghĩa cấu hình Micro-Batching (Dành riêng cho Go Ingestor tối ưu I/O & băng thông TCP)
 type BatchConfig struct {
-	MaxBatchSize  int           // Số bản ghi tối đa trong micro-batch (Mặc định: 20 tin nhắn)
-	MaxBatchBytes int64         // Kích thước byte tối đa trong micro-batch (Mặc định: 16KB = 16,384 bytes)
+	MaxBatchSize  int           // Số bản ghi tối đa trong micro-batch (Mặc định: 500 tin nhắn)
+	MaxBatchBytes int64         // Kích thước byte tối đa trong micro-batch (Mặc định: 64KB = 65,536 bytes)
 	FlushInterval time.Duration // Nhịp timer flush cân bằng (Mặc định: 500ms)
 }
 
 // BatchFlusher quản lý bộ đệm Micro-Batching (Mục đích: Tiết kiệm syscall I/O và tối ưu nén Zstd sang Kafka)
 type BatchFlusher struct {
-	cfg          BatchConfig
-	producer     Producer
-	rawEnvelopes []*contract.EventEnvelope // Bộ đệm mảng sự kiện hợp lệ
-	rawBytes     int64                     // Dung lượng byte tích lũy của rawBuffer
-	invalidRecs  []*contract.InvalidRecord // Bộ đệm mảng sự kiện vi phạm
-	invalidBytes int64                     // Dung lượng byte tích lũy của invalidBuffer
-	mu           sync.Mutex                // Mutex bảo vệ truy cập đồng thời
-	timerTicker  *time.Ticker              // Timer ticker nhịp flush định kỳ
-	stopTickerCh chan struct{}             // Channel báo dừng ticker
-	stopOnce     sync.Once                 // Guard đảm bảo channel chỉ close đúng 1 lần (Thread-safe)
+	cfg           BatchConfig
+	producer      Producer
+	rawEnvelopes  []*contract.EventEnvelope // Bộ đệm mảng sự kiện hợp lệ
+	rawBytes      int64                     // Dung lượng byte tích lũy của rawBuffer
+	invalidRecs   []*contract.InvalidRecord // Bộ đệm mảng sự kiện vi phạm
+	invalidBytes  int64                     // Dung lượng byte tích lũy của invalidBuffer
+	mu            sync.Mutex                // Mutex bảo vệ truy cập đồng thời
+	timerTicker   *time.Ticker              // Timer ticker nhịp flush định kỳ
+	stopTickerCh  chan struct{}             // Channel báo dừng ticker
+	stopOnce      sync.Once                 // Guard đảm bảo channel chỉ close đúng 1 lần (Thread-safe)
+	log           *logrus.Entry             // Logger in chi tiết tiến trình flush
+	batchCounter  atomic.Int64              // Bộ đếm tổng số batch đã flush
+	totalProduced atomic.Int64              // Bộ đếm tổng số bản ghi đã phát sang Kafka
 }
 
-// NewBatchFlusher khởi tạo BatchFlusher với cấu hình mặc định cân bằng (500ms Flush Interval)
+// NewBatchFlusher khởi tạo BatchFlusher với cấu hình Nano-Batching hiệu năng cao (500ms Flush Interval)
 func NewBatchFlusher(cfg BatchConfig, producer Producer) *BatchFlusher {
-	// Micro-batch 20 tin nhắn (đảm bảo latency thấp, nhường batch lớn cho Rust Engine)
+	// Nano-batch 500 tin nhắn để đẩy nhanh tiến độ Ingestion
 	if cfg.MaxBatchSize <= 0 {
-		cfg.MaxBatchSize = 20
+		cfg.MaxBatchSize = 500
 	}
-	// Micro-batch 16KB để tối ưu Zstd compression mà không tiêu tốn RAM
+	// Micro-batch 64KB tối ưu băng thông TCP & Gzip compression
 	if cfg.MaxBatchBytes <= 0 {
-		cfg.MaxBatchBytes = 16384
+		cfg.MaxBatchBytes = 65536
 	}
-	// Tần số Flush 500ms cân bằng giữa CPU overhead và latency
+	// Tần số Flush 500ms cân bằng giữa CPU overhead khi rảnh và đảm bảo latency
 	if cfg.FlushInterval <= 0 {
 		cfg.FlushInterval = 500 * time.Millisecond
 	}
@@ -55,6 +60,11 @@ func NewBatchFlusher(cfg BatchConfig, producer Producer) *BatchFlusher {
 		invalidBytes: 0,
 		stopTickerCh: make(chan struct{}),
 	}
+}
+
+// SetLogger gán logger điều khiển cho BatchFlusher
+func (b *BatchFlusher) SetLogger(log *logrus.Entry) {
+	b.log = log
 }
 
 // StartTimer kích hoạt vòng lặp Flush nhịp định kỳ 500ms
@@ -85,7 +95,7 @@ func (b *BatchFlusher) StopTimer() {
 	})
 }
 
-// AddEvent thêm 1 EventEnvelope hợp lệ vào bộ đệm micro-batch, tự động Flush khi đủ 20 tin hoặc 16KB
+// AddEvent thêm 1 EventEnvelope hợp lệ vào bộ đệm micro-batch, tự động Flush khi đủ 500 tin hoặc 64KB
 func (b *BatchFlusher) AddEvent(ctx context.Context, envelope *contract.EventEnvelope) (int64, error) {
 	b.mu.Lock()
 
@@ -142,6 +152,20 @@ func (b *BatchFlusher) FlushRaw(ctx context.Context) (int64, error) {
 			return count, fmt.Errorf("fail-close trong batch raw produce: %w", err)
 		}
 		count++
+	}
+
+	// In chi tiết thông tin Micro-Batch Flush lên Terminal CLI
+	if b.log != nil && count > 0 {
+		batchIdx := b.batchCounter.Add(1)
+		producedSoFar := b.totalProduced.Add(count)
+		sampleMatchID := toSend[0].MatchID
+		b.log.WithFields(logrus.Fields{
+			"batch_index":     batchIdx,
+			"batch_size":      count,
+			"match_id":        sampleMatchID,
+			"produced_so_far": producedSoFar,
+			"timestamp":       time.Now().Format(time.RFC3339Nano),
+		}).Info("🚀 [FLUSH BATCH] Đã bắn thành công Micro-Batch sang Kafka Topic!")
 	}
 
 	return count, nil

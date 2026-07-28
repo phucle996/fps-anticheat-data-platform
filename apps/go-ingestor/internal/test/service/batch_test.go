@@ -91,8 +91,8 @@ func TestBatchBuffer_TimerFlush(t *testing.T) {
 	// Đợi 50ms để timer 20ms kích hoạt trigger flush
 	time.Sleep(50 * time.Millisecond)
 
-	if len(mockProd.producedEvents) != 1 {
-		t.Errorf("Kỳ vọng Timer Flush phát 1 bản ghi vào Kafka, nhận được: %d", len(mockProd.producedEvents))
+	if len(mockProd.GetProducedEvents()) != 1 {
+		t.Errorf("Kỳ vọng Timer Flush phát 1 bản ghi vào Kafka, nhận được: %d", len(mockProd.GetProducedEvents()))
 	}
 }
 

@@ -1,3 +1,4 @@
+use crate::decision::{DecisionEvaluator, DecisionOutcome};
 use crate::error::{AppError, Result};
 use crate::evidence::{EvidenceEngine, EvidenceMatrix};
 use crate::inference::OnnxInferenceEngine;
@@ -8,13 +9,18 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::UnixListener;
 use tracing::{info, warn};
 
+fn default_op() -> String {
+    "predict".to_string()
+}
+
 /// IpcPredictRequest định nghĩa cấu trúc JSON IPC Yêu cầu dự báo từ Go API Gateway
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IpcPredictRequest {
+    #[serde(default = "default_op")]
     pub op: String,                // Operation name (vd: "predict")
     pub match_id: String,          // Mã trận đấu
     pub player_id: String,         // Mã người chơi
-    pub features: [f32; 6],        // 6 đặc trưng ML Gold Feature Contract
+    pub features: Vec<f32>,        // Các đặc trưng ML Gold Feature Contract (Linh hoạt độ dài 6-11 đặc trưng)
 }
 
 /// IpcPredictResponse định nghĩa cấu trúc JSON IPC Phản hồi cho Go API Gateway
@@ -27,18 +33,22 @@ pub struct IpcPredictResponse {
     pub risk_level: String,             // Nhãn Risk Level ("LOW", "MEDIUM", "HIGH", "CRITICAL")
     pub model_version: String,          // Phiên bản ONNX Model ("v1")
     pub evidence_matrix: EvidenceMatrix, // Bằng chứng gian lận Evidence Matrix
+    pub decision_outcome: Option<DecisionOutcome>, // Kết quả quyết định xử lý gian lận từ Decision Engine
 }
 
 /// UdsIpcServer quản lý lắng nghe và xử lý giao tiếp Unix Domain Socket IPC siêu tốc với Go API
 pub struct UdsIpcServer {
     socket_path: String,           // Đường dẫn file socket (vd: "/tmp/rust_inference.sock")
     engine: OnnxInferenceEngine,   // Engine dự báo ONNX
+    evaluator: DecisionEvaluator,  // Động cơ đánh giá quy tắc xử lý Decision Evaluator
 }
 
 impl UdsIpcServer {
-    /// New khởi tạo UdsIpcServer
+    /// New khởi tạo UdsIpcServer đồng thời tự động nạp cấu hình Policy YAML
     pub fn new(socket_path: String, engine: OnnxInferenceEngine) -> Self {
-        Self { socket_path, engine }
+        // Nạp file cấu hình Policy từ configs/policies.yaml (tự động fallback nếu không có file)
+        let evaluator = DecisionEvaluator::new("configs/policies.yaml");
+        Self { socket_path, engine, evaluator }
     }
 
     /// Run khởi chạy vòng lặp async tokio lắng nghe kết nối từ Go API Gateway
@@ -60,12 +70,15 @@ impl UdsIpcServer {
             match listener.accept().await {
                 Ok((mut stream, _addr)) => {
                     let engine = self.engine.clone();
+                    let evaluator = self.evaluator.clone();
                     tokio::spawn(async move {
                         let mut buffer = [0u8; 4096];
                         if let Ok(bytes_read) = stream.read(&mut buffer).await {
                             if bytes_read > 0 {
                                 if let Ok(req) = serde_json::from_slice::<IpcPredictRequest>(&buffer[..bytes_read]) {
                                     let resp = if !engine.is_available() {
+                                        let evidence_matrix = EvidenceEngine::generate_evidence(&req.features);
+                                        let decision_outcome = evaluator.evaluate(0.0, &evidence_matrix, &req.features);
                                         IpcPredictResponse {
                                             status: "UNAVAILABLE".to_string(),
                                             match_id: req.match_id,
@@ -73,11 +86,14 @@ impl UdsIpcServer {
                                             risk_score: 0.0,
                                             risk_level: "UNAVAILABLE".to_string(),
                                             model_version: "UNAVAILABLE".to_string(),
-                                            evidence_matrix: EvidenceEngine::generate_evidence(&req.features),
+                                            evidence_matrix,
+                                            decision_outcome: Some(decision_outcome),
                                         }
                                     } else {
                                         let (risk_score, risk_level) = engine.predict(&req.features);
                                         let evidence_matrix = EvidenceEngine::generate_evidence(&req.features);
+                                        // Thực thi đánh giá Decision Engine dựa trên ML Risk Score, Evidence Matrix và Raw Features
+                                        let decision_outcome = evaluator.evaluate(risk_score, &evidence_matrix, &req.features);
 
                                         IpcPredictResponse {
                                             status: "ok".to_string(),
@@ -87,6 +103,7 @@ impl UdsIpcServer {
                                             risk_level,
                                             model_version: engine.version(),
                                             evidence_matrix,
+                                            decision_outcome: Some(decision_outcome),
                                         }
                                     };
 

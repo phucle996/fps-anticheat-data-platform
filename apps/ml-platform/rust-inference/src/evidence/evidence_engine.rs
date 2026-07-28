@@ -20,8 +20,8 @@ pub struct EvidenceMatrix {
 pub struct EvidenceEngine;
 
 impl EvidenceEngine {
-    /// Generate_evidence tính toán bằng chứng bất thường từ 6 đặc trưng Gold features
-    pub fn generate_evidence(features: &[f32; 6]) -> EvidenceMatrix {
+    /// Generate_evidence tính toán bằng chứng bất thường từ các đặc trưng Gold features
+    pub fn generate_evidence(features: &[f32]) -> EvidenceMatrix {
         let feature_names = [
             "kills_per_minute",
             "damage_per_minute",
@@ -37,8 +37,9 @@ impl EvidenceEngine {
         let lobby_mads = [0.08, 45.0, 0.08, 30.0, 40.0, 80.0];
 
         let mut items = Vec::new();
+        let max_idx = feature_names.len().min(features.len());
 
-        for i in 0..6 {
+        for i in 0..max_idx {
             let val = features[i];
             let median = lobby_medians[i];
             let mad = lobby_mads[i];

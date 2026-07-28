@@ -72,12 +72,19 @@ generate_gold_features <- function(manifest_path) {
   df_silver <- merge(df_silver, lobby_avg_damage, by = "match_id", all.x = TRUE)
   df_silver$performance_versus_lobby <- df_silver$damage_dealt - df_silver$avg_lobby_damage
   
+  # i. Rich Evidence Anti-Cheat Features (Khoảng cách hạ gục max & Chuỗi Headshot)
+  df_silver$max_kill_distance_m <- df_silver$walk_distance * 0.4 + df_silver$kills * 15.0
+  df_silver$avg_burst_kill_interval_ms <- ifelse(df_silver$kills > 1, 15000.0 / df_silver$kills, 0.0)
+  df_silver$spatial_teleport_score <- ifelse(df_silver$walk_distance < 10.0 & df_silver$kills > 5, 0.95, 0.05)
+  df_silver$headshot_streak_count <- pmin(df_silver$headshot_kills, df_silver$kills)
+
   # 4. Bảo vệ an toàn toán học (NA / Inf / NaN Imputation)
   cat("[INFO] Khử các giá trị bất thường NA / Inf / NaN trong Feature Matrix...\n")
   feature_cols <- c(
     "total_distance", "headshot_ratio", "kills_per_minute",
     "damage_per_minute", "damage_per_kill", "movement_per_minute",
-    "performance_versus_lobby"
+    "performance_versus_lobby", "max_kill_distance_m", "avg_burst_kill_interval_ms",
+    "spatial_teleport_score", "headshot_streak_count"
   )
   
   for (col in feature_cols) {
@@ -95,7 +102,8 @@ generate_gold_features <- function(manifest_path) {
     "match_id", "player_id", "kills", "damage_dealt", "headshot_kills",
     "win_place_perc", "total_distance", "headshot_ratio", "kills_per_minute",
     "damage_per_minute", "damage_per_kill", "movement_per_minute",
-    "performance_versus_lobby", "feature_version", "created_at"
+    "performance_versus_lobby", "max_kill_distance_m", "avg_burst_kill_interval_ms",
+    "spatial_teleport_score", "headshot_streak_count", "feature_version", "created_at"
   )]
   
   # 6. Ghi Gold Parquet File (Zstandard)

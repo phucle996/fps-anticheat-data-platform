@@ -41,32 +41,32 @@ def render_overview_page(api_client: APIClient):
     # 3. Biểu đồ Plotly Batch Throughput Volume
     st.subheader("📈 Thông Lượng Xử Lý Dữ Liệu Theo Batch (Batch Processing Throughput)")
     
-    # Tạo dataframe giả lập 25 batches phục vụ hiển thị biểu đồ trực quan
-    batches_data = []
-    for b in range(1, summary.get("total_batches", 25) + 1):
-        batches_data.append({
-            "Batch ID": f"Batch-{b:02d}",
-            "Valid Records": 390 + (b * 2),
-            "Invalid Records": 5 if b % 3 == 0 else 2,
-        })
-    df_batches = pd.DataFrame(batches_data)
-
-    fig = px.bar(
-        df_batches,
-        x="Batch ID",
-        y=["Valid Records", "Invalid Records"],
-        title="Số lượng bản ghi xử lý thành công vs Bị loại bỏ theo từng Batch",
-        labels={"value": "Số lượng bản ghi", "variable": "Phân loại"},
-        color_discrete_map={"Valid Records": "#38bdf8", "Invalid Records": "#f43f5e"},
-        template="plotly_dark",
-        barmode="stack"
-    )
-    fig.update_layout(
-        paper_bgcolor="rgba(15, 23, 42, 0.75)",
-        plot_bgcolor="rgba(15, 23, 42, 0.75)",
-        font=dict(color="#e2e8f0")
-    )
-    st.plotly_chart(fig, use_container_width=True)
+    # Hiển thị thông báo trạng thái rỗng khi chưa có batch data được stream từ Data Lake
+    total_batches = summary.get("total_batches", 0)
+    if total_batches == 0:
+        st.info("ℹ️ Đường ống Data Lake hiện chưa có dữ liệu batch. Hãy thực thi lệnh `make run` để stream dữ liệu real-time từ Kaggle dataset!")
+    else:
+        batches_data = summary.get("batches_list", [])
+        if not batches_data:
+            st.info("ℹ️ Đang chờ đồng bộ chi tiết các batch từ Data Lake...")
+        else:
+            df_batches = pd.DataFrame(batches_data)
+            fig = px.bar(
+                df_batches,
+                x="Batch ID",
+                y=["Valid Records", "Invalid Records"],
+                title="Số lượng bản ghi xử lý thành công vs Bị loại bỏ theo từng Batch",
+                labels={"value": "Số lượng bản ghi", "variable": "Phân loại"},
+                color_discrete_map={"Valid Records": "#38bdf8", "Invalid Records": "#f43f5e"},
+                template="plotly_dark",
+                barmode="stack"
+            )
+            fig.update_layout(
+                paper_bgcolor="rgba(15, 23, 42, 0.75)",
+                plot_bgcolor="rgba(15, 23, 42, 0.75)",
+                font=dict(color="#e2e8f0")
+            )
+            st.plotly_chart(fig, use_container_width=True)
 
     st.markdown("---")
 

@@ -111,12 +111,12 @@ impl OnnxInferenceEngine {
     }
 
     /// Predict tính toán Anomaly Risk Score (0.0 - 1.0) và gán nhãn Risk Level
-    pub fn predict(&self, features: &[f32; 6]) -> (f32, String) {
+    pub fn predict(&self, features: &[f32]) -> (f32, String) {
         // [kills_per_minute, damage_per_minute, headshot_ratio, damage_per_kill, movement_per_minute, performance_versus_lobby]
-        let kills_pm = features[0];
-        let damage_pm = features[1];
-        let hs_ratio = features[2];
-        let movement_pm = features[4];
+        let kills_pm = features.get(0).cloned().unwrap_or(0.0);
+        let damage_pm = features.get(1).cloned().unwrap_or(0.0);
+        let hs_ratio = features.get(2).cloned().unwrap_or(0.0);
+        let movement_pm = features.get(4).cloned().unwrap_or(0.0);
 
         // Công thức chấm điểm Anomaly Risk Score trọng số
         let mut raw_score = (hs_ratio * 0.45) + ((kills_pm / 2.0).min(1.0) * 0.25) + ((damage_pm / 150.0).min(1.0) * 0.20) + ((movement_pm / 300.0).min(1.0) * 0.10);

@@ -1,0 +1,50 @@
+# ==============================================================================
+# FPS Anti-Cheat Platform - Policy Rules Configuration (YAML)
+# ==============================================================================
+# File cấu hình quy tắc đánh giá rủi ro & hành động xử lý (Enforcement Action)
+# Cho phép hot-reload / tùy chỉnh ngưỡng điểm rủi ro mà không cần recompile code
+
+version: "v1"
+default_action: "CLEAR"
+
+rules:
+  # Rule 1: Rủi ro thấp -> Không phát hiện gian lận
+  - name: "auto_clear"
+    min_score: 0.0
+    max_score: 0.30
+    action: "CLEAR"
+    priority: "LOW"
+    reason: "Dung lượng chỉ số rủi ro trong ngưỡng an toàn"
+
+  # Rule 2: Rủi ro trung bình -> Thêm vào Watchlist theo dõi tần suất cao
+  - name: "watchlist_monitoring"
+    min_score: 0.30
+    max_score: 0.60
+    action: "WATCHLIST"
+    priority: "MEDIUM"
+    reason: "Tỷ lệ bất thường gia tăng, kích hoạt chế độ giám sát tần suất cao"
+
+  # Rule 3: Rủi ro cao -> Đẩy sang queue cho Ban Moderator kiểm duyệt
+  - name: "escalate_human_review"
+    min_score: 0.60
+    max_score: 0.85
+    action: "ESCALATE_TO_MODERATOR"
+    priority: "HIGH"
+    reason: "Điểm rủi ro cao, yêu cầu nhân sự Moderator duyệt bằng chứng"
+
+  # Rule 4: Rủi ro cực cao + Bằng chứng Aimbot rõ ràng (Headshot Z-Score > 3.0) -> Tạm khóa tài khoản
+  - name: "auto_suspend_aimbot"
+    min_score: 0.85
+    max_score: 1.01
+    min_headshot_zscore: 3.0
+    action: "SUSPEND_ACCOUNT"
+    priority: "URGENT"
+    reason: "Phát hiện chỉ số Headshot Anomaly cực đoan (Z-Score > 3.0) nghi vấn Aimbot"
+
+  # Rule 5: Rủi ro cực cao chung -> Ban vĩnh viễn
+  - name: "critical_permanent_ban"
+    min_score: 0.85
+    max_score: 1.01
+    action: "PERMANENT_BAN"
+    priority: "CRITICAL"
+    reason: "Tổng hợp các chỉ số gian lận vượt ngưỡng an toàn nghiêm trọng"

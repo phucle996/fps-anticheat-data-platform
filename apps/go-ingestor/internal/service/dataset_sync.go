@@ -95,11 +95,14 @@ func (s *DatasetSyncService) Run(ctx context.Context) error {
 	// 4. Tải stream zip archive từ Kaggle
 	s.log.WithField("slug", s.cfg.DatasetSlug).Info("Bắt đầu tải dataset archive từ Kaggle...")
 	kaggleCli := NewKaggleClient(s.cfg.KaggleUsername, s.cfg.KaggleKey)
-	stream, err := kaggleCli.DownloadDatasetStream(ctx, s.cfg.DatasetSlug)
+	stream, contentLength, err := kaggleCli.DownloadDatasetStream(ctx, s.cfg.DatasetSlug)
 	if err != nil {
 		return fmt.Errorf("tải stream dataset từ Kaggle thất bại: %w", err)
 	}
 	defer stream.Close()
+
+	// Wrap stream với ProgressReader để hiển thị phần trăm (%) và tốc độ tải trên Terminal
+	progressStream := NewProgressReader(stream, contentLength, fmt.Sprintf("Kaggle Download (%s)", s.cfg.SelectedFile))
 
 	// 5. Đọc stream vào bộ nhớ và tính toán SHA-256 Checksum đồng thời
 	buf := new(bytes.Buffer)
@@ -107,7 +110,7 @@ func (s *DatasetSyncService) Run(ctx context.Context) error {
 	multiWriter := io.MultiWriter(buf, hasher)
 
 	s.log.Info("Đang đọc dữ liệu archive và tính toán SHA-256 checksum...")
-	if _, err := io.Copy(multiWriter, stream); err != nil {
+	if _, err := io.Copy(multiWriter, progressStream); err != nil {
 		return fmt.Errorf("lỗi đọc dữ liệu stream từ Kaggle: %w", err)
 	}
 

@@ -25,9 +25,10 @@ else
   echo "  - Bucket '${BUCKET_NAME}' đã tồn tại."
 fi
 
-# Thiết lập policy công khai đọc/ghi nội bộ hoặc kiểm tra trạng thái bucket
-echo "  - Thiết lập quyền mặc định cho bucket '${BUCKET_NAME}'..."
-mc anonymous set download "localminio/${BUCKET_NAME}" || true
+# Thiết lập policy công khai đọc/ghi nội bộ và bật Bucket Versioning bảo vệ dữ liệu
+echo "  - Thiết lập quyền công khai ListObjects và Bucket Versioning cho bucket '${BUCKET_NAME}'..."
+mc anonymous set public "localminio/${BUCKET_NAME}" || true
+mc version enable "localminio/${BUCKET_NAME}" || true
 
 echo "[+] Danh sách Buckets hiện tại trên MinIO:"
 mc ls localminio/

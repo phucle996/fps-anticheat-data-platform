@@ -3,23 +3,28 @@ package service_test
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 
 	"pubg-anti-cheat/go-ingestor/internal/contract"
 	"pubg-anti-cheat/go-ingestor/internal/service"
 )
 
-// MockProducer giả lập Kafka Producer triển khai service.Producer interface
+// MockProducer giả lập Kafka Producer triển khai service.Producer interface (Thread-Safe Mutex Active)
 type MockProducer struct {
 	producedEvents   []*contract.EventEnvelope
 	producedInvalids []*contract.InvalidRecord
-	shouldFail       bool // Cờ giả lập lỗi Fail-Close từ Kafka
+	shouldFail       bool       // Cờ giả lập lỗi Fail-Close từ Kafka
+	mu               sync.Mutex // Mutex bảo vệ truy cập mảng khi chạy đa luồng
 }
 
 // Ensure interface implementation check
 var _ service.Producer = (*MockProducer)(nil)
 
 func (m *MockProducer) ProduceEvent(ctx context.Context, envelope *contract.EventEnvelope) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	if m.shouldFail {
 		return errors.New("kafka cluster unavailable (mock error)")
 	}
@@ -28,11 +33,22 @@ func (m *MockProducer) ProduceEvent(ctx context.Context, envelope *contract.Even
 }
 
 func (m *MockProducer) ProduceInvalid(ctx context.Context, invalid *contract.InvalidRecord) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	if m.shouldFail {
 		return errors.New("kafka DLQ topic full (mock error)")
 	}
 	m.producedInvalids = append(m.producedInvalids, invalid)
 	return nil
+}
+
+func (m *MockProducer) GetProducedEvents() []*contract.EventEnvelope {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	res := make([]*contract.EventEnvelope, len(m.producedEvents))
+	copy(res, m.producedEvents)
+	return res
 }
 
 func (m *MockProducer) Close() error {

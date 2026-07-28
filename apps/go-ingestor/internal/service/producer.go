@@ -38,7 +38,7 @@ func NewKafkaProducer(brokers []string, rawTopic, invalidTopic string, log *logr
 		Topic:        rawTopic,
 		Balancer:     &kafka.Hash{},         // Partitioning theo Message Key (match_id)
 		RequiredAcks: kafka.RequireAll,      // acks=all (Bắt buộc ISR xác nhận)
-		Compression:  compress.Zstd,         // Nén Zstandard giảm 60-70% dung lượng
+		Compression:  compress.Gzip,         // Nén Gzip tương thích 100% với librdkafka Alpine Linux Consumer
 		MaxAttempts:  5,                     // Retry 5 lần khi gặp sự cố tạm thời
 		BatchTimeout: 10 * time.Millisecond, // Flush nhịp micro-batch 10ms
 		BatchSize:    100,                   // Batch tối đa 100 tin nhắn
@@ -51,7 +51,7 @@ func NewKafkaProducer(brokers []string, rawTopic, invalidTopic string, log *logr
 		Topic:        invalidTopic,
 		Balancer:     &kafka.Hash{},
 		RequiredAcks: kafka.RequireAll,
-		Compression:  compress.Zstd,
+		Compression:  compress.Gzip,         // Nén Gzip tương thích 100% với librdkafka Alpine Linux Consumer
 		MaxAttempts:  5,
 		BatchTimeout: 10 * time.Millisecond,
 		BatchSize:    100,

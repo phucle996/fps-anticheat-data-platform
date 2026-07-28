@@ -76,11 +76,13 @@ impl MinioWriter {
     pub async fn ensure_datalake_structure(&self) -> Result<()> {
         let keep_paths = [
             "bronze/player-stat/.keep",
+            "bronze/kill-events/.keep",
             "bronze/invalid/.keep",
             "manifests/.keep",
             "silver/players/.keep",
             "silver/matches/.keep",
             "silver/player-match/.keep",
+            "silver/kill-events/.keep",
             "gold/player-match-features/.keep",
             "models/.keep",
             "predictions/.keep",
@@ -94,7 +96,7 @@ impl MinioWriter {
             }
         }
 
-        info!("Đã xác nhận 100% cấu trúc 9 thư mục móng Medallion Data Lake sẵn sàng trên MinIO S3");
+        info!("Đã xác nhận 100% cấu trúc 11 thư mục móng Medallion Data Lake sẵn sàng trên MinIO S3");
         Ok(())
     }
 
@@ -103,6 +105,15 @@ impl MinioWriter {
         let (year, month, day) = Self::parse_date_or_now(ingest_time_str);
         format!(
             "bronze/player-stat/year={}/month={:02}/day={:02}/pubg_player_stat_{}.parquet",
+            year, month, day, batch_id
+        )
+    }
+
+    /// Generate_kill_events_path sinh đường dẫn Hive Partitioning chuẩn cho Telemetry Kill Events
+    pub fn generate_kill_events_path(batch_id: &str, ingest_time_str: &str) -> String {
+        let (year, month, day) = Self::parse_date_or_now(ingest_time_str);
+        format!(
+            "bronze/kill-events/year={}/month={:02}/day={:02}/pubg_kill_events_{}.parquet",
             year, month, day, batch_id
         )
     }

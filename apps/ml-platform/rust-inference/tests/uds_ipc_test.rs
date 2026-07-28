@@ -30,7 +30,7 @@ async fn test_uds_ipc_stream() {
         op: "predict".to_string(),
         match_id: "match_100".to_string(),
         player_id: "player_A".to_string(),
-        features: [1.50, 140.0, 0.95, 120.0, 250.0, 800.0],
+        features: vec![1.50, 140.0, 0.95, 120.0, 250.0, 800.0],
     };
 
     let req_bytes = serde_json::to_vec(&req).unwrap();

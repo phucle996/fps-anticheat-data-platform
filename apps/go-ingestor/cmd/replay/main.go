@@ -55,11 +55,13 @@ func main() {
 	// 7. Thực thi Use Case Replay Dataset
 	if _, err := replayService.Run(ctx, replayConfig); err != nil {
 		if ctx.Err() != nil {
-			log.Warn("Tiến trình replay bị ngắt bởi tín hiệu Graceful Shutdown từ hệ thống")
+			log.Info("🟢 Tiến trình replay đã dừng an toàn theo yêu cầu ngắt từ người dùng (Graceful Shutdown - Exit Code 0).")
 		} else {
 			log.WithError(err).Fatal("Thực thi tiến trình replay thất bại")
 		}
+	} else if ctx.Err() != nil {
+		log.Info("🟢 Tiến trình replay đã dừng an toàn theo yêu cầu ngắt từ người dùng (Graceful Shutdown - Exit Code 0).")
+	} else {
+		log.Info("Tiến trình replay hoàn thành và kết thúc an toàn.")
 	}
-
-	log.Info("Tiến trình replay hoàn thành và kết thúc an toàn.")
 }

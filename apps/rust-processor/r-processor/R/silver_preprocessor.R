@@ -113,26 +113,51 @@ process_silver_entities <- function(manifest_path) {
     "headshot_ratio", "walk_distance", "ride_distance", "swim_distance",
     "survival_duration", "win_place_perc", "ingest_time"
   )]
+
+  # 8b. Tạo Bảng 4: Silver Kill-Events Telemetry (Nếu có dữ liệu từ deaths.csv)
+  cat("[INFO] Trích xuất Bảng 4: Silver Kill-Events Telemetry...\n")
+  if ("killer_x" %in% colnames(df) && "victim_x" %in% colnames(df)) {
+    # Tính toán khoảng cách Euclid 2D thực tế từ tọa độ hạ gục (X1, Y1) -> (X2, Y2)
+    df$distance_euclidean <- sqrt((df$victim_x - df$killer_x)^2 + (df$victim_y - df$killer_y)^2)
+    df$telemetry_anomaly <- ifelse(abs(df$distance - df$distance_euclidean) > 50, TRUE, FALSE)
+    silver_kill_events_df <- df[, c(
+      "match_id", "event_id", "player_id", "victim_id", "killer_x", "killer_y",
+      "victim_x", "victim_y", "distance", "distance_euclidean", "telemetry_anomaly", "ingest_time"
+    )]
+  } else {
+    # Tạo DataFrame rỗng an toàn nếu chưa có telemetry kill log
+    silver_kill_events_df <- data.frame(
+      match_id = character(), event_id = character(), player_id = character(),
+      victim_id = character(), killer_x = numeric(), killer_y = numeric(),
+      victim_x = numeric(), victim_y = numeric(), distance = numeric(),
+      distance_euclidean = numeric(), telemetry_anomaly = logical(), ingest_time = character(),
+      stringsAsFactors = FALSE
+    )
+  }
   
   # 9. Ghi các file Silver Parquet
   silver_base_dir <- "silver"
   dir.create(file.path(silver_base_dir, "players"), recursive = TRUE, showWarnings = FALSE)
   dir.create(file.path(silver_base_dir, "matches"), recursive = TRUE, showWarnings = FALSE)
   dir.create(file.path(silver_base_dir, "player-match"), recursive = TRUE, showWarnings = FALSE)
+  dir.create(file.path(silver_base_dir, "kill-events"), recursive = TRUE, showWarnings = FALSE)
   
   players_out <- file.path(silver_base_dir, "players", sprintf("players_%s.parquet", batch_id))
   matches_out <- file.path(silver_base_dir, "matches", sprintf("matches_%s.parquet", batch_id))
   player_match_out <- file.path(silver_base_dir, "player-match", sprintf("player_match_%s.parquet", batch_id))
+  kill_events_out <- file.path(silver_base_dir, "kill-events", sprintf("kill_events_%s.parquet", batch_id))
   
   if (requireNamespace("arrow", quietly = TRUE)) {
     arrow::write_parquet(silver_players_df, players_out, compression = "zstd")
     arrow::write_parquet(silver_matches_df, matches_out, compression = "zstd")
     arrow::write_parquet(silver_player_match_df, player_match_out, compression = "zstd")
+    arrow::write_parquet(silver_kill_events_df, kill_events_out, compression = "zstd")
   } else {
     # Fallback ghi R format / CSV nếu môi trường dev chưa nạp Arrow C++ bindings
     write.csv(silver_players_df, paste0(players_out, ".csv"), row.names = FALSE)
     write.csv(silver_matches_df, paste0(matches_out, ".csv"), row.names = FALSE)
     write.csv(silver_player_match_df, paste0(player_match_out, ".csv"), row.names = FALSE)
+    write.csv(silver_kill_events_df, paste0(kill_events_out, ".csv"), row.names = FALSE)
   }
   
   cat(sprintf("[SUCCESS] Ghi thành công 3 bảng Silver entities: %s, %s, %s\n", players_out, matches_out, player_match_out))
