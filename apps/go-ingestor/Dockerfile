@@ -1,6 +1,7 @@
 # ==========================================
 # Dockerfile — Go Ingestor (dataset-sync)
 # PUBG Anti-Cheat Data Platform (Production Hardened)
+# Tối ưu Docker Layer Caching với BuildKit mount cache
 # ==========================================
 
 # ------------------------------------------
@@ -9,25 +10,36 @@
 FROM golang:1.23-alpine AS builder
 
 # Cài đặt ca-certificates để tải HTTPS an toàn
+# Layer này cache ổn định — chỉ đổi khi update base image
 RUN apk add --no-cache ca-certificates git
 
-# Thiếp lập thư mục làm việc trong container build
 WORKDIR /app
 
-# Copy go.mod và go.sum để tận dụng Docker layer caching
+# --- LAYER CACHE TỐI ƯU: Download dependencies trước ---
+# Copy go.mod và go.sum TRƯỚC KHI copy source code
+# Layer này chỉ rebuild khi go.mod/go.sum thay đổi (thêm/xóa dependency)
 COPY go.mod go.sum ./
-RUN go mod download
 
-# Copy toàn bộ mã nguồn Go vào container
+# Dùng BuildKit mount cache để cache Go module download vào /root/go/pkg/mod
+# Lần sau build sẽ reuse cache thay vì download lại từ internet
+RUN --mount=type=cache,target=/root/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    go mod download
+
+# --- COPY SOURCE CODE THẬT ---
+# Layer này thay đổi mỗi khi source thay đổi, nhưng dependencies đã cache ở trên
 COPY . .
 
 # Biên dịch binary tĩnh (CGO_ENABLED=0) tối ưu cho Distroless
-RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-w -s" -o /app/bin/dataset-sync ./cmd/dataset-sync
+# Dùng BuildKit mount cache cho Go build cache (~/.cache/go-build)
+RUN --mount=type=cache,target=/root/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 GOOS=linux go build -ldflags="-w -s" -o /app/bin/dataset-sync ./cmd/dataset-sync
 
 # ------------------------------------------
 # Stage 2: Runtime Stage (Google Distroless Static Debian12)
 # ------------------------------------------
-# Sử dụng Google Distroless siêu bảo mật, không có shell/bash, không có utilities dư thừa
+# Sử dụng Google Distroless siêu bảo mật, không có shell/bash
 FROM gcr.io/distroless/static-debian12:nonroot
 
 # Chạy dưới tài khoản không có quyền root (nonroot UID 65532)

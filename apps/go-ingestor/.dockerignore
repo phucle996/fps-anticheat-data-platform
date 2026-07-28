@@ -1,0 +1,28 @@
+# Go build cache — không copy vào Docker build context
+# Binaries output và Go build cache nặng, không cần thiết
+bin/
+
+# Git metadata
+.git/
+.gitignore
+
+# Test và coverage output
+*_test.go
+*.test
+coverage.out
+coverage.html
+
+# IDE configs
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Tài liệu
+*.md
+README*
+LICENSE*
+
+# CI/CD
+.github/
+Makefile
