@@ -1,152 +1,202 @@
-# 🛡️ PUBG Anti-Cheat Data Platform
+# 🛡️ FPS Anti-Cheat Data Platform
 
 Hệ thống xử lý và phân tích dữ liệu gian lận game PUBG end-to-end theo kiến trúc **Cloud-Native, High-Availability (HA) & Event-Driven Streaming Data Platform**.
 
+Dữ liệu tĩnh từ Kaggle được stream qua Kafka, xử lý batch hiệu năng cao bằng Rust để ghi vào Data Lake (MinIO), phân tích bằng R, huấn luyện mô hình ML (Python + ONNX), suy luận siêu tốc bằng Rust, và hiển thị kết quả trên Streamlit Dashboard.
+
 ---
 
-## 1. 🏗️ Kiến trúc Tổng quan (Architecture Overview)
+## 1. 🏗️ Kiến Trúc Tổng Quan (Architecture Overview)
 
-Hệ thống được thiết kế theo mô hình **Medallion Data Lake Architecture** (Bronze $\rightarrow$ Silver $\rightarrow$ Gold) kết hợp với **Durable Two-Phase Commit (2PC)** và cơ chế **Fail-Close 100%** bảo mật tuyệt đối.
+```text
++==================================================================================================+
+|                        FPS ANTI-CHEAT DATA PLATFORM — E2E ARCHITECTURE                           |
++==================================================================================================+
 
-```mermaid
-flowchart TD
-    subgraph DataIngestion [" Data Ingestion Layer"]
-        DS["Kaggle CSV Dataset"] --> GI["Go Ingestor Service<br/>(Go 1.26)"]
-        GI -- "Publish JSON Event Envelopes" --> KF["Kafka Event Stream<br/>(cp-kafka 7.6.1 KRaft)"]
-    end
-
-    subgraph StreamProcessing [" Stream Processing & Validation"]
-        KF --> RP["Rust Processor Engine<br/>(Rust 1.87, Edition 2024)"]
-        RP -->|1. Validate 11 Semantic Rules| V["Data Quality & Deduplication"]
-        RP -->|2. Arrow / Parquet Zstd| AR["Parquet Serializer"]
-        RP -->|3. Durable 2PC Storage| MIO[("MinIO S3 Data Lake<br/>(Bronze / Silver / Gold / Manifests)")]
-    end
-
-    subgraph AnalyticsEngine [" Medallion Analytics & ML Pipeline"]
-        RP -->|4. Dynamic Dispatch| RFE["R Feature Engine<br/>(R 4.4 Worker Pool)"]
-        RFE -->|Silver & Gold Parquet| MIO
-        
-        PYML["Python ML Worker<br/>(Python 3.13)"] -->|Train Isolation Forest| ONNX["ONNX Model Export"]
-        ONNX -->|Save Model| MIO
-        ONNX -.->|UDS IPC / ONNX Runtime| RIE["Rust Inference Engine"]
-    end
-
-    subgraph ServingLayer [" Serving & Presentation Layer"]
-        MIO --> API["Go REST API Gateway<br/>(Go 1.26)"]
-        MIO --> UI["Streamlit Risk Dashboard<br/>(Python 3.13)"]
-        RIE --> API
-    end
-
-    classDef primary fill:#1e3a8a,stroke:#3b82f6,color:#ffffff,stroke-width:2px;
-    classDef storage fill:#581c87,stroke:#a855f7,color:#ffffff,stroke-width:2px;
-    classDef processing fill:#065f46,stroke:#10b981,color:#ffffff,stroke-width:2px;
-    classDef serving fill:#9a3412,stroke:#f97316,color:#ffffff,stroke-width:2px;
-
-    class GI,RP,API primary;
-    class KF,MIO storage;
-    class RFE,PYML,RIE processing;
-    class UI serving;
+  ┌──────────────────────┐       ────── HTTPS API ──────>      ┌─────────────────────────────────┐
+  │ Kaggle PUBG Dataset  │                                     │     Go Ingestor (Go 1.26)      │
+  │ (PUBG Telemetry CSVs)│                                     │ • Normalize & Validate Schema   │
+  └──────────────────────┘                                     │ • Micro-Batch (20msg/16KB/500ms)│
+                                                               │ • StreamDelay (real-time sim)   │
+                                                               │ • Checkpoint Resume (MinIO S3)  │
+                                                               └────────────────┬────────────────┘
+                                                                                │
+                                                                    JSON Events │ (Key: match_id)
+                                                                                v
+                                                               ┌─────────────────────────────────┐
+                                                               │  Apache Kafka (KRaft 7.6.1)     │
+                                                               │  • raw topic (Partitions: 3)    │
+                                                               │  • invalid topic (DLQ)          │
+                                                               └────────────────┬────────────────┘
+                                                                                │ Consumer Group
+                                                                                v
+  ┌────────────────────────────┐                                     ┌───────────────────────────────────┐
+  │ MinIO S3 Data Lake         │                                     │ Rust Processor Container (Rust)   │
+  │ • Bronze (Raw Parquet)     │                                     │ • Consume Kafka -> Validate Rules │
+  │ • Silver (Cleaned Entities)│      <── Parquet + Manifest ──      │ • Arrow & Parquet (Zstd 4.2x)     │
+  │ • Gold (Feature Matrix)    │                                     │ • Durable Two-Phase Commit (2PC)  │
+  │ • Models & Predictions     │                                     │ ┌───────────────────────────────┐ │
+  └─────────────┬──────────────┘                                     │ │ R Worker Subprocess (R 4.4)   │ │
+                │                                                    │ │ • daemon_worker.R (5s idle)   │ │
+                │                                                    │ └───────────────────────────────┘ │
+                │                                                    └─────────────────┬─────────────────┘
+                │                                                                      │
+                │ Gold Features S3 Read                                 Kafka Signal:  │ gold.ready
+                v                                                                      v
+  ┌──────────────────────────────────────────────────────────────────────────────────────────────────────┐
+  │ ML Platform 3-in-1 Ecosystem (apps/ml-platform)                                                      │
+  │                                                                                                      │
+  │ ┌─────────────────────────────────┐   ────── Export ONNX ──────>   ┌───────────────────────────────┐ │
+  │ │ Python ML Worker (Python 3.13)  │                                │ Rust Inference Engine (Rust)  │ │
+  │ │ • Train IsoForest & XGBoost     │   Save to s3://pubg-models/    │ • ONNX Runtime + Hot-Swap RAM │ │
+  │ │ • Export 6-input ONNX Model     │   Signal: model.ready          │ • Robust Z-Score Evidence Gen │ │
+  │ └─────────────────────────────────┘                                └───────────────┬───────────────┘ │
+  │                                                                                    │                 │
+  │                                                                       Unix Socket  │ IPC Request/Resp│
+  │                                                                       /tmp/*.sock  │ (< 0.1ms)       │
+  │                                                                                    v                 │
+  │                                                                    ┌───────────────────────────────┐ │
+  │                                                                    │ Go REST API Gateway (Go 1.26) │ │
+  │                                                                    │ • GET /api/v1/health & summary│ │
+  │                                                                    │ • POST /api/v1/predict (UDS)  │ │
+  │                                                                    └───────────────┬───────────────┘ │
+  └─────────────┬──────────────────────────────────────────────────────────────────────┼─────────────────┘
+                │                                                                      │
+                │ S3 Read (Silver / Gold / Predictions)                                │ HTTP REST API Client
+                v                                                                      v
+  ┌──────────────────────────────────────────────────────────────────────────────────────────────────────┐
+  │ Streamlit Risk Analysis & Telemetry Dashboard (Python 3.13 / Streamlit, Port 8501)                  │
+  │ Views: Overview (KPI Stats)  |  Data Quality & Preprocessing  |  Player Analysis  |  Risk Fraud     │
+  └──────────────────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-
-### Các Thành phần Dịch vụ (Core Services)
-
-| Dịch vụ | Công nghệ | Chức năng chính |
-|---|---|---|
-| **`go-ingestor`** | Go 1.26 | Stream dữ liệu Kaggle CSV, validate Data Contract, publish sang Kafka topic `pubg.v1.player-stat.raw`. |
-| **`pubg-kafka`** | Kafka 7.6.1 (KRaft) | Message broker phân tán high-throughput, quản lý partition offset và event log. |
-| **`pubg-minio`** | MinIO S3 | Medallion Data Lake Storage (9 thư mục móng Bronze, Silver, Gold, Manifests, Models). |
-| **`rust-processor`** | Rust 1.87 (Edition 2024) | Consume Kafka, validate 11 Semantic Rules, Dedup, chuyển đổi Arrow/Parquet Zstd, ghi Bronze S3, Durable 2PC commit. |
-| **`r-processor`** | R 4.4 | Spark-style Dynamic Worker Pool tính toán Silver/Gold features và huấn luyện mô hình Isolation Forest. |
-| **`python-ml-worker`** | Python 3.13 | ML Pipeline, huấn luyện mô hình gian lận, export ONNX model. |
-| **`rust-inference`** | Rust 1.87 | IPC Server giao tiếp qua Unix Domain Socket (`/tmp/rust_inference.sock`) thực thi ONNX inference siêu tốc. |
-| **`go-api`** | Go 1.26 | High-concurrency REST API Gateway cung cấp endpoint truy vấn chỉ số và Risk Score người chơi. |
-| **`streamlit-dashboard`** | Python 3.13 / Streamlit | Dashboard tương tác xem tổng quan rủi ro, phân tích người chơi và bằng chứng gian lận (Top Evidence Features). |
-
 ---
 
-## 2. 📂 Cấu trúc Monorepo (Repository Structure)
+## 2. 📂 Cấu Trúc Monorepo (Repository Structure)
 
 ```text
 fps-anticheat/
-├── apps/                        # Các microservices độc lập
-│   ├── go-ingestor/             # Service nạp & stream dữ liệu vào Kafka (Go 1.26)
-│   ├── rust-processor/          # Engine xử lý stream, validation & Parquet S3 (Rust 1.87)
-│   ├── r-processor/             # R Feature Engine & Dynamic Worker Pool (R)
-│   ├── ml-platform/             # Python ML Worker, Go API & Rust Inference Engine
-│   └── streamlit-dashboard/     # UI Dashboard hiển thị phân tích bằng chứng rủi ro (Streamlit)
-├── contracts/                   # Data Contracts chung giữa các service (JSON Schemas)
-│   ├── schemas/                 # Event Envelope, Manifest & Prediction Schemas
-│   └── data-dictionary/         # Từ điển giải thích các chỉ số game PUBG
-├── docs/                        # Tài liệu thiết kế & Bộ 42 Docker Integration Test Cases
-│   └── DOCKER_INTEGRATION_TEST_SUITE.md
-├── deployments/                 # Docker Compose & Kubernetes Deployment Manifests
-│   └── compose/                 # Docker Compose file & cấu hình Kafka KRaft / MinIO
-├── scripts/                     # Utility scripts (Init Data Lake, Runner integration tests)
-└── checklist.md                 # Roadmap & tiến độ hoàn thành các Phase của dự án
+├── apps/                             # Microservices độc lập
+│   ├── go-ingestor/                  # [Go 1.26] Nạp & stream CSV vào Kafka
+│   ├── rust-processor/               # [Rust 1.87] Stream Processing + Parquet S3 + R Worker Pool
+│   ├── r-processor/                  # [R 4.4] ETL Pipeline: Bronze -> Silver -> Gold + EDA
+│   ├── ml-platform/                  # ML Platform tích hợp 3-in-1:
+│   │   ├── python-ml-worker/         #   [Python 3.13] Train ML Model + Export ONNX
+│   │   ├── rust-inference/           #   [Rust 1.87] ONNX Inference Engine + UDS IPC
+│   │   └── go-api/                   #   [Go 1.26] REST API Gateway
+│   └── streamlit-dashboard/          # [Python 3.13 / Streamlit] UI Dashboard
+├── contracts/                        # Data Contracts chung (JSON Schemas)
+│   ├── schemas/                      # Event Envelope, Manifest, Prediction Schemas
+│   ├── examples/                     # Sample valid/invalid events
+│   └── data-dictionary/              # Từ điển giải thích các chỉ số game
+├── configs/                          # Cấu hình môi trường (local, dev, production)
+├── deployments/                      # Docker Compose & K8s manifests
+│   └── compose/                      # docker-compose.yml + init scripts
+├── docs/                             # Tài liệu kiến trúc & Test Suites
+│   ├── DATA_LAKE_LAYOUT.md           # Quy chuẩn Medallion Data Lake
+│   ├── DOCKER_INTEGRATION_TEST_SUITE.md
+│   └── EDA_REPORT.md
+├── scripts/                          # Shell scripts setup & testing
+├── docker-compose.yml                # Root wrapper -> deployments/compose/
+├── Makefile                          # Multi-language monorepo commands
+├── ARCH.md                           # Tài liệu kiến trúc chi tiết
+└── checklist.md                      # Roadmap & tiến độ dự án
 ```
 
 ---
 
-## 3. 🚀 Hướng Dẫn Vận Hành & Khởi Chạy (Quick Start)
+## 3. 📡 Kafka Topic Registry
 
-### Yêu cầu Tiền đề (Prerequisites)
-- **Go** $\ge$ 1.26
-- **Rust (Cargo)** $\ge$ 1.87 (Edition 2024)
-- **Python** $\ge$ 3.13
+| Topic | Partitions | Retention | Producer | Consumer | Mô Tả |
+|:---|:---:|:---:|:---|:---|:---|
+| `pubg.v1.player-stat.raw` | 3 | 7 ngày | Go Ingestor | Rust Processor | Event Envelope hợp lệ, key = `match_id` |
+| `pubg.v1.invalid` | 1 | 30 ngày | Go Ingestor | (Audit) | Dead-Letter Queue bản ghi lỗi validation |
+| `pubg.v1.dataset.gold.ready` | — | — | Rust Processor | Python ML Worker | Signal khi Gold features sẵn sàng |
+| `pubg.v1.ml.model.ready` | — | — | Python ML Worker | Rust Inference | Signal khi model ONNX mới được export |
+
+---
+
+## 4. 💾 MinIO Data Lake Layout (Medallion)
+
+```text
+fps-anticheat-datalake/
+├── bronze/                           # Raw Ingestion Layer
+│   ├── player-stat/                  # Parquet files từ Rust Processor
+│   └── invalid/                      # JSON bản ghi lỗi Data Quality
+├── manifests/                        # Batch Manifest audit logs (JSON)
+├── silver/                           # Cleaned & Modeled Entities
+│   ├── players/                      # Player profiles
+│   ├── matches/                      # Match summaries
+│   └── player-match/                 # Player-Match detailed stats
+├── gold/                             # Feature Store cho ML
+│   └── player-match-features/        # Feature Matrix (Parquet)
+├── models/                           # ML Model Artifacts (ONNX, metadata)
+└── predictions/                      # Anomaly Detection scoring results
+```
+
+> Chi tiết Naming Convention & Hive Partitioning: [DATA_LAKE_LAYOUT.md](docs/DATA_LAKE_LAYOUT.md)
+
+---
+
+## 5. 🔗 Danh Mục Dịch Vụ & README Chi Tiết
+
+| # | Service | Tech Stack | README |
+|:---:|:---|:---|:---|
+| 1 | **Go Ingestor** | Go 1.26, Kafka, MinIO | [apps/go-ingestor/README.md](apps/go-ingestor/README.md) |
+| 2 | **Rust Stream Processor** | Rust 1.87, rdkafka, Arrow, Parquet | [apps/rust-processor/README.md](apps/rust-processor/README.md) |
+| 3 | **R Processor** | R 4.4, arrow, dplyr | *(chưa có README — xem `apps/r-processor/R/`)* |
+| 4 | **ML Platform (3-in-1)** | Python 3.13, Rust 1.87, Go 1.26 | [apps/ml-platform/README.md](apps/ml-platform/README.md) |
+| 5 | **Streamlit Dashboard** | Python 3.13, Streamlit | *(chưa có README — xem `apps/streamlit-dashboard/app.py`)* |
+
+### Tài Liệu Bổ Sung
+
+| Tài liệu | Đường dẫn |
+|:---|:---|
+| Kiến trúc chi tiết (ARCH) | [ARCH.md](ARCH.md) |
+| Data Lake Layout & Naming | [docs/DATA_LAKE_LAYOUT.md](docs/DATA_LAKE_LAYOUT.md) |
+| Docker Integration Test Suite (42 Cases) | [docs/DOCKER_INTEGRATION_TEST_SUITE.md](docs/DOCKER_INTEGRATION_TEST_SUITE.md) |
+| EDA Report | [docs/EDA_REPORT.md](docs/EDA_REPORT.md) |
+| Checklist & Roadmap | [checklist.md](checklist.md) |
+
+---
+
+## 6. 🚀 Quick Start
+
+### Yêu cầu
+- **Go** ≥ 1.26
+- **Rust (Cargo)** ≥ 1.87 (Edition 2024)
+- **Python** ≥ 3.13
+- **R** ≥ 4.4
 - **Docker & Docker Compose** (BuildKit enabled)
 
----
-
-### Bước 1: Khởi chạy Hạ tầng Container (Kafka & MinIO)
+### Khởi chạy hạ tầng
 
 ```bash
-# Khởi chạy Kafka KRaft Mode và MinIO S3 Container
-docker compose -f deployments/compose/docker-compose.yml up -d
+# Khởi chạy toàn bộ (Kafka KRaft + MinIO + Init Containers + Services)
+docker compose up -d
+
+# Hoặc chỉ hạ tầng cơ sở
+docker compose -f deployments/compose/docker-compose.yml up -d kafka minio init-kafka init-minio
 ```
 
-Kiểm tra sức khỏe các containers:
-```bash
-docker compose -f deployments/compose/docker-compose.yml ps
-```
-
----
-
-### Bước 2: Build Docker Images Các Microservices
+### Lệnh Makefile hữu ích
 
 ```bash
-# Build Go Ingestor Image (Go 1.26)
-docker build -t pubg-go-ingestor:latest apps/go-ingestor/
-
-# Build Rust Stream Processor Image (Rust 1.87)
-docker build -t pubg-rust-processor:latest apps/rust-processor/
+make help         # Liệt kê tất cả các lệnh khả dụng
+make check-deps   # Kiểm tra Go, Rust, R, Python3, Docker
+make init         # Khởi tạo file .env, bật containers & tạo S3 Buckets / Kafka Topics
+make start        # Khởi chạy toàn bộ các containers hạ tầng
+make run          # Thực thi kịch bản Runbook End-to-End với data thực tế từ Kaggle CSV
+make stop         # Tạm dừng toàn bộ containers (bảo toàn volume dữ liệu)
+make restart      # Tái khởi động lại toàn bộ containers
+make purge        # Dọn dẹp triệt để containers, Docker volumes & file tạm (Zero-State)
+make test         # Chạy unit tests cho tất cả 4 ngôn ngữ (Go, Rust, Python, Streamlit)
+make fmt          # Format code toàn bộ monorepo (Go, Rust)
+make logs         # Theo dõi log thời gian thực từ containers
 ```
-
----
-
-### Bước 3: Chạy Bộ 42 Integration Test Cases trên Docker
-
-Dự án cung cấp bộ kiểm thử tích hợp toàn diện 42 Test Cases bao phủ 8 Domains (Fail-Close, Data Quality, Checkpointing, Circuit Breaker, Durable 2PC,...).
-
-Chạy thử nghiệm **Domain 1 (Fail-Close & Configuration Resilience)**:
-```bash
-# Chạy script tự động kiểm thử Domain 1
-./scripts/run_domain1_tests.sh
-```
-
-Hoặc chạy thủ công kiểm thử cơ chế **Fail-Close** của `go-ingestor`:
-```bash
-docker run --rm --network pubg-platform-net \
-  -e KAFKA_BROKERS="" \
-  -e MINIO_ENDPOINT="http://minio:9000" \
-  pubg-go-ingestor:latest
-```
-*Kết quả kỳ vọng*: Container ném lỗi `FATAL: phát hiện 1 biến môi trường chưa khai báo: [KAFKA_BROKERS]` và ngắt ngay lập tức với **Exit Code 1**.
-
-Chi tiết bộ 42 Test Cases tham khảo thêm tại [docs/DOCKER_INTEGRATION_TEST_SUITE.md](docs/DOCKER_INTEGRATION_TEST_SUITE.md).
 
 ---
 
-## 📋 Danh Mục Tiến Độ Công Việc
+## 📋 Tiến Độ Công Việc
 
-Tham khảo danh mục công việc chi tiết và tình trạng hoàn thành các Phase tại [checklist.md](checklist.md).
+Tham khảo chi tiết tại [checklist.md](checklist.md).

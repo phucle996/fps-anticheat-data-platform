@@ -102,7 +102,7 @@ Hệ thống kết hợp cơ chế **Spark-Style Warm Worker Daemon Pool** (`src
 
 ```text
 +-------------------------------------------------------------------------------------------------------------------------+
-|                  SPARK-STYLE WARM WORKER DAEMON & HYSTERESIS CIRCUIT BREAKER FLOW (5s IDLE KEEP-ALIVE)                  |
+|                          WARM WORKER DAEMON & HYSTERESIS CIRCUIT BREAKER FLOW (5s IDLE KEEP-ALIVE)                          |
 +-------------------------------------------------------------------------------------------------------------------------+
 
                                     Kafka Consumer Raw Stream (pubg.v1.player-stat.raw)

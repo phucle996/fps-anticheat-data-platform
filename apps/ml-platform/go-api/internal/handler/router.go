@@ -78,6 +78,11 @@ func (s *Server) handlePredict(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if resp.Status == "UNAVAILABLE" || resp.RiskLevel == "UNAVAILABLE" {
+		writeJSON(w, http.StatusServiceUnavailable, resp)
+		return
+	}
+
 	writeJSON(w, http.StatusOK, resp)
 }
 

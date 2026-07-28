@@ -31,15 +31,15 @@ if command -v mc &> /dev/null; then
 
     # 3. Tạo cấu trúc thư mục móng 9 tầng Medallion Data Lake
     echo "[INFO] Đang khởi tạo các thư mục móng Medallion Data Lake..."
-    mc touch "${MINIO_ALIAS}/${BUCKET_NAME}/bronze/player-stat/.keep"
-    mc touch "${MINIO_ALIAS}/${BUCKET_NAME}/bronze/invalid/.keep"
-    mc touch "${MINIO_ALIAS}/${BUCKET_NAME}/manifests/.keep"
-    mc touch "${MINIO_ALIAS}/${BUCKET_NAME}/silver/players/.keep"
-    mc touch "${MINIO_ALIAS}/${BUCKET_NAME}/silver/matches/.keep"
-    mc touch "${MINIO_ALIAS}/${BUCKET_NAME}/silver/player-match/.keep"
-    mc touch "${MINIO_ALIAS}/${BUCKET_NAME}/gold/player-match-features/.keep"
-    mc touch "${MINIO_ALIAS}/${BUCKET_NAME}/models/.keep"
-    mc touch "${MINIO_ALIAS}/${BUCKET_NAME}/predictions/.keep"
+    echo "" | mc pipe "${MINIO_ALIAS}/${BUCKET_NAME}/bronze/player-stat/.keep"
+    echo "" | mc pipe "${MINIO_ALIAS}/${BUCKET_NAME}/bronze/invalid/.keep"
+    echo "" | mc pipe "${MINIO_ALIAS}/${BUCKET_NAME}/manifests/.keep"
+    echo "" | mc pipe "${MINIO_ALIAS}/${BUCKET_NAME}/silver/players/.keep"
+    echo "" | mc pipe "${MINIO_ALIAS}/${BUCKET_NAME}/silver/matches/.keep"
+    echo "" | mc pipe "${MINIO_ALIAS}/${BUCKET_NAME}/silver/player-match/.keep"
+    echo "" | mc pipe "${MINIO_ALIAS}/${BUCKET_NAME}/gold/player-match-features/.keep"
+    echo "" | mc pipe "${MINIO_ALIAS}/${BUCKET_NAME}/models/.keep"
+    echo "" | mc pipe "${MINIO_ALIAS}/${BUCKET_NAME}/predictions/.keep"
 
     echo "[SUCCESS] Đã khởi tạo 100% cấu trúc Medallion Data Lake trên MinIO S3 thành công!"
 else

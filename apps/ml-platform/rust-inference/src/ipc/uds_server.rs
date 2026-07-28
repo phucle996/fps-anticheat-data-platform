@@ -65,17 +65,29 @@ impl UdsIpcServer {
                         if let Ok(bytes_read) = stream.read(&mut buffer).await {
                             if bytes_read > 0 {
                                 if let Ok(req) = serde_json::from_slice::<IpcPredictRequest>(&buffer[..bytes_read]) {
-                                    let (risk_score, risk_level) = engine.predict(&req.features);
-                                    let evidence_matrix = EvidenceEngine::generate_evidence(&req.features);
+                                    let resp = if !engine.is_available() {
+                                        IpcPredictResponse {
+                                            status: "UNAVAILABLE".to_string(),
+                                            match_id: req.match_id,
+                                            player_id: req.player_id,
+                                            risk_score: 0.0,
+                                            risk_level: "UNAVAILABLE".to_string(),
+                                            model_version: "UNAVAILABLE".to_string(),
+                                            evidence_matrix: EvidenceEngine::generate_evidence(&req.features),
+                                        }
+                                    } else {
+                                        let (risk_score, risk_level) = engine.predict(&req.features);
+                                        let evidence_matrix = EvidenceEngine::generate_evidence(&req.features);
 
-                                    let resp = IpcPredictResponse {
-                                        status: "ok".to_string(),
-                                        match_id: req.match_id,
-                                        player_id: req.player_id,
-                                        risk_score,
-                                        risk_level,
-                                        model_version: engine.version(),
-                                        evidence_matrix,
+                                        IpcPredictResponse {
+                                            status: "ok".to_string(),
+                                            match_id: req.match_id,
+                                            player_id: req.player_id,
+                                            risk_score,
+                                            risk_level,
+                                            model_version: engine.version(),
+                                            evidence_matrix,
+                                        }
                                     };
 
                                     if let Ok(resp_bytes) = serde_json::to_vec(&resp) {

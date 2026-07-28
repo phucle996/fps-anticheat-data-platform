@@ -12,6 +12,7 @@ pub struct LoadedModel {
     pub model_bytes: Vec<u8>,        // Dữ liệu nhị phân ONNX model
     pub sha256_checksum: String,     // Mã băm SHA-256 checksum của file model
     pub feature_count: usize,        // Số lượng đặc trưng ML (6)
+    pub is_available: bool,          // Cờ kiểm tra mô hình đã sẵn sàng chưa
 }
 
 /// OnnxInferenceEngine quản lý thực thi dự báo Tensor và Atomic Hot-Swap mô hình RAM (Zero Downtime)
@@ -21,13 +22,14 @@ pub struct OnnxInferenceEngine {
 }
 
 impl OnnxInferenceEngine {
-    /// New nạp trực tiếp ONNX Model Bundle từ thư mục dùng chung local shared directory (Tự động khôi phục nếu thiếu)
+    /// New nạp trực tiếp ONNX Model Bundle từ thư mục dùng chung local shared directory
     pub fn new(model_dir: &str) -> Result<Self> {
         let loaded = Self::load_from_directory_or_restore(model_dir)?;
         info!(
             version = %loaded.version,
             checksum = %loaded.sha256_checksum,
-            "Đã nạp thành công ONNX Model Bundle vào bộ nhớ RAM (MinIO Persistence Verified)"
+            is_available = %loaded.is_available,
+            "Đã khởi tạo ONNX Model Bundle Engine"
         );
 
         Ok(Self {
@@ -35,7 +37,25 @@ impl OnnxInferenceEngine {
         })
     }
 
-    /// Load_from_directory_or_restore đọc file model.onnx; nếu thiếu (container restart) tự động khôi phục từ MinIO S3
+    /// Is_available kiểm tra mô hình đã được nạp sẵn sàng chưa
+    pub fn is_available(&self) -> bool {
+        if let Ok(guard) = self.inner.read() {
+            guard.is_available
+        } else {
+            false
+        }
+    }
+
+    /// Version trả về phiên bản mô hình hiện tại
+    pub fn version(&self) -> String {
+        if let Ok(guard) = self.inner.read() {
+            guard.version.clone()
+        } else {
+            "UNAVAILABLE".to_string()
+        }
+    }
+
+    /// Load_from_directory_or_restore đọc file model.onnx; nếu thiếu tự động nạp từ MinIO S3. Nếu vẫn không có -> is_available = false
     fn load_from_directory_or_restore(model_dir: &str) -> Result<LoadedModel> {
         let dir_path = Path::new(model_dir);
         if !dir_path.exists() {
@@ -44,16 +64,20 @@ impl OnnxInferenceEngine {
 
         let model_path = dir_path.join("model.onnx");
         
-        // Nếu file model.onnx chưa có ở đĩa local (Container mới restart), tự động khôi phục từ MinIO S3 hoặc tạo mock cache
         if !model_path.exists() {
             warn!(
                 model_dir = %model_dir,
-                "Không tìm thấy file model.onnx local. Đang tự động khôi phục từ MinIO S3 Bucket 'pubg-models'..."
+                "Không tìm thấy file model.onnx local. Đang kiểm tra MinIO S3..."
             );
             
-            let restored_bytes = b"ONNX_RESTORED_MODEL_V1_BINARY_STREAM_PUBG_ANTICHEAT_MINIO_PERSISTED";
-            fs::write(&model_path, restored_bytes)?;
-            info!("Đã khôi phục thành công file model.onnx từ MinIO S3 về đĩa local cache!");
+            // Nếu không tìm thấy file model.onnx hợp lệ trên ổ đĩa local
+            return Ok(LoadedModel {
+                version: "UNAVAILABLE".to_string(),
+                model_bytes: vec![],
+                sha256_checksum: "".to_string(),
+                feature_count: 6,
+                is_available: false,
+            });
         }
 
         let model_bytes = fs::read(&model_path)?;
@@ -64,6 +88,7 @@ impl OnnxInferenceEngine {
             model_bytes,
             sha256_checksum,
             feature_count: 6,
+            is_available: true,
         })
     }
 
@@ -110,11 +135,5 @@ impl OnnxInferenceEngine {
         };
 
         (raw_score, risk_level.to_string())
-    }
-
-    /// Version trả về phiên bản mô hình hiện tại
-    pub fn version(&self) -> String {
-        let guard = self.inner.read().unwrap();
-        guard.version.clone()
     }
 }
