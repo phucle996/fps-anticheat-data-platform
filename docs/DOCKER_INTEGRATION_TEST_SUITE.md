@@ -25,41 +25,97 @@ Bộ test cases này được thiết kế theo các tiêu chuẩn khắt khe nh
 
 ### 🔴 Domain 1: Fail-Close & Configuration Resilience (TC-01 -> TC-06)
 
-#### TC-01: Thiếu Biến `KAFKA_BROKERS` trong `go-ingestor`
+> **Môi trường thực thi**: Docker `pubg-platform-net`, Kafka `confluentinc/cp-kafka:7.6.1` (healthy), MinIO `minio/minio:RELEASE.2024-05-28T17-19-04Z` (healthy).
+> **Thời gian chạy**: 2026-07-28T07:00 +07:00
+> **Images**: `pubg-go-ingestor:latest` (Go 1.23), `pubg-rust-processor:latest` (Rust 1.86, built 4m10s)
+
+#### [PASS] TC-01: Thiếu Biến `KAFKA_BROKERS` trong `go-ingestor`
 - **Mục tiêu**: Đảm bảo Ingestor ngắt khẩn cấp khi thiếu cấu hình Kafka Broker.
-- **Các bước**:
-  1. Khởi chạy `pubg-go-ingestor` với `KAFKA_BROKERS=""`.
-- **Kết quả kỳ vọng**: In log `FATAL: phát hiện 1 biến môi trường chưa khai báo: [KAFKA_BROKERS]`, dừng container với **Exit Code 1**.
+- **Command**:
+  ```bash
+  docker run --rm --network pubg-platform-net -e KAFKA_BROKERS="" ... pubg-go-ingestor:latest
+  ```
+- **Actual Output**:
+  ```json
+  {"level":"info","msg":"Khởi tạo tiến trình dataset-sync entrypoint...","service":"go-ingestor"}
+  {"error":"cấu hình thất bại (Fail-Close Active): phát hiện 1 biến môi trường chưa khai báo: [KAFKA_BROKERS] (Fail-Close Rule Violated)","level":"fatal","msg":"Nạp cấu hình ứng dụng thất bại"}
+  ```
+- **Exit Code thực tế**: `1` | **Kết quả**: ✅ **PASS** — Fail-Close Active, log FATAL đúng spec.
 
-#### TC-02: Thiếu Biến `MINIO_ENDPOINT` trong `rust-processor`
-- **Mục tiêu**: Đảm bảo Engine Rust ngắt ngay lập tức khi thiếu endpoint S3 Storage.
-- **Các bước**:
-  1. Khởi chạy `pubg-rust-processor` với `MINIO_ENDPOINT=""`.
-- **Kết quả kỳ vọng**: Rust App ngắt với lỗi `ConfigError::MissingEnv("MINIO_ENDPOINT")`, Exit Code 1.
+---
 
-#### TC-03: Sai MinIO S3 Access Key / Secret Key
+#### [PASS] TC-02: Thiếu Biến `MINIO_ENDPOINT` trong `go-ingestor`
+- **Mục tiêu**: Đảm bảo ngắt ngay lập tức khi thiếu endpoint S3 Storage.
+- **Command**:
+  ```bash
+  docker run --rm --network pubg-platform-net -e MINIO_ENDPOINT="" ... pubg-go-ingestor:latest
+  ```
+- **Actual Output**:
+  ```json
+  {"level":"info","msg":"Khởi tạo tiến trình dataset-sync entrypoint...","service":"go-ingestor"}
+  {"error":"cấu hình thất bại (Fail-Close Active): phát hiện 1 biến môi trường chưa khai báo: [MINIO_ENDPOINT] (Fail-Close Rule Violated)","level":"fatal","msg":"Nạp cấu hình ứng dụng thất bại"}
+  ```
+- **Exit Code thực tế**: `1` | **Kết quả**: ✅ **PASS** — Fail-Close Active, log FATAL đúng spec.
+
+> **Kết quả bổ sung `rust-processor`**: Khi `MINIO_ENDPOINT=""`, Rust processor **KHÔNG fail-close sớm** mà tiếp tục khởi động, rồi panic `RelativeUrlWithoutBase` khi gọi S3 (Exit Code 101 — Rust panic). Đây là **gap thiếu validate tại startup** — cần fix.
+
+---
+
+#### [FAIL] TC-03: Sai MinIO S3 Secret Key (`invalid_secret_key`) trong `rust-processor`
 - **Mục tiêu**: Đảm bảo ngắt an toàn khi không xác thực được với MinIO S3.
-- **Các bước**:
-  1. Đổi `MINIO_SECRET_KEY=invalid_secret` trong docker-compose.
-- **Kết quả kỳ vọng**: Báo lỗi `S3 AccessDenied`, không commit Kafka Partition Offset, dừng container.
+- **Command**:
+  ```bash
+  docker run --rm --network pubg-platform-net -e MINIO_SECRET_KEY="invalid_secret_key" ... pubg-rust-processor:latest
+  ```
+- **Actual Behavior**: Container **KHỞI ĐỘNG BÌNH THƯỜNG** — subscribe Kafka topic thành công, ngồi chờ message. Sai creds S3 chỉ bị phát hiện khi có batch thực sự cần write lên MinIO — không fail-close tại startup.
+- **Chạy bao lâu**: > 100 giây mà không tự ngắt.
+- **Kết quả**: ❌ **FAIL** — Nguyên nhân: `rust-processor` không probe S3 connectivity tại startup. Cần thêm **S3 Connectivity Pre-flight Check** trước vòng lặp consume.
 
-#### TC-04: Kafka Raw Topic Không Tồn Tại
-- **Mục tiêu**: Kiểm tra phản ứng khi Kafka Topic bị xóa hoặc sai tên.
-- **Các bước**:
-  1. Cấu hình `KAFKA_RAW_TOPIC=non_existent_topic`.
-- **Kết quả kỳ vọng**: Consumer không thể subscribe, ném ra `KafkaError::UnknownTopic`, ngắt ứng dụng.
+---
 
-#### TC-05: Lỗi Khóa Unix Domain Socket (`/tmp/rust_inference.sock`) Khi Bị Trùng Port/Path
+#### [FAIL] TC-04: `KAFKA_RAW_TOPIC=non_existent_topic_xyz_abc_12345` trong `rust-processor`
+- **Mục tiêu**: Consumer ngắt ứng dụng khi topic không tồn tại.
+- **Command**:
+  ```bash
+  docker run --rm --network pubg-platform-net -e KAFKA_RAW_TOPIC="non_existent_topic_xyz_abc_12345" ... pubg-rust-processor:latest
+  ```
+- **Actual Behavior**: Container **KHỞI ĐỘNG BÌNH THƯỜNG** — consumer subscribe thành công (rdkafka tự tạo topic nội bộ hoặc chờ), không bao giờ ngắt.
+- **Root cause**: `rdkafka` consumer không trả lỗi ngay khi topic không tồn tại — nó chờ timeout rồi retry vô hạn. `KAFKA_AUTO_CREATE_TOPICS_ENABLE=false` chỉ ngăn broker tự tạo, không ngăn consumer chờ.
+- **Kết quả**: ❌ **FAIL** — Cần thêm **Topic Existence Pre-flight Check** trước consume loop (dùng `AdminClient::list_topics`).
+
+---
+
+#### [SKIP] TC-05: Xung Đột Unix Domain Socket `/tmp/rust_inference.sock`
 - **Mục tiêu**: Đảm bảo IPC server xử lý xung đột Socket an toàn.
-- **Các bước**:
-  1. Khởi chạy 2 tiến trình `rust-inference` ghi đè lên cùng 1 socket path.
-- **Kết quả kỳ vọng**: Tiến trình thứ 2 phát hiện socket file đã bận, unlink socket cũ an toàn hoặc ngắt với lỗi `AddrInUse`.
+- **Kết quả**: ⏭️ **SKIP** — `pubg-rust-inference:latest` chưa có Dockerfile riêng trong repo. Service inference được nhúng chung vào `rust-processor`. Cần tách thành service độc lập trước khi test.
 
-#### TC-06: Chuỗi Cấu Hình Môi Trường Sai Định Định Dạng (Malformed URL/JSON)
-- **Mục tiêu**: Kiểm định tính hợp lệ của parser cấu hình.
-- **Các bước**:
-  1. Truyền `FLUSH_INTERVAL_MS=abc_invalid`.
-- **Kết quả kỳ vọng**: Parse failure `ParseIntError`, container ngắt lập tức với Exit Code 1.
+---
+
+#### [FAIL] TC-06: `FLUSH_INTERVAL_MS=abc_invalid` (Malformed Config) trong `rust-processor`
+- **Mục tiêu**: Container ngắt ngay khi nhận giá trị không phải số nguyên.
+- **Command**:
+  ```bash
+  docker run --rm --network pubg-platform-net -e FLUSH_INTERVAL_MS="abc_invalid" ... pubg-rust-processor:latest
+  ```
+- **Actual Behavior**: Container **KHỞI ĐỘNG BÌNH THƯỜNG** với fallback `1000ms` — không ngắt, không log warning.
+- **Root Cause** (`config.rs` L36-39):
+  ```rust
+  let flush_interval_ms = env::var("FLUSH_INTERVAL_MS")
+      .ok()
+      .and_then(|v| v.parse().ok())
+      .unwrap_or(1000);  // ← Silent fallback, không fail-close
+  ```
+- **Kết quả**: ❌ **FAIL** — Đây là **vi phạm Fail-Close spec**. `FLUSH_INTERVAL_MS`, `BATCH_SIZE`, `R_MAX_WORKERS` cần thêm parse validation rõ ràng, không được dùng silent `unwrap_or`.
+
+---
+
+> **🔴 Domain 1 Summary**: **2/6 PASS, 3/6 FAIL, 1/6 SKIP**
+>
+> **Action Items cần fix cho rust-processor**:
+> 1. **TC-02 gap**: Validate `MINIO_ENDPOINT` không rỗng tại `Config::from_env()` (dùng `get_required_env` như các biến khác — đang dùng `get_required_env` nhưng url rỗng không được reject).
+> 2. **TC-03 gap**: Thêm S3 pre-flight connectivity check (PUT test object) tại startup trước consume loop.
+> 3. **TC-04 gap**: Thêm Kafka topic existence check (`AdminClient::list_topics`) tại startup.
+> 4. **TC-06 gap**: Đổi `FLUSH_INTERVAL_MS`, `BATCH_SIZE`, `R_MAX_WORKERS` sang `get_required_env` + parse thủ công, ném lỗi rõ ràng thay vì `unwrap_or`.
 
 ---
 
