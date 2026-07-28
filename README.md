@@ -8,35 +8,46 @@ Hệ thống xử lý và phân tích dữ liệu gian lận game PUBG end-to-en
 
 Hệ thống được thiết kế theo mô hình **Medallion Data Lake Architecture** (Bronze $\rightarrow$ Silver $\rightarrow$ Gold) kết hợp với **Durable Two-Phase Commit (2PC)** và cơ chế **Fail-Close 100%** bảo mật tuyệt đối.
 
-```text
-  [ Kaggle CSV Dataset ]
-           │
-           ▼
-  [ Go Ingestor Service ] (Go 1.26)
-           │ (Publish JSON Event Envelopes)
-           ▼
-  [ Kafka Event Stream ] (cp-kafka 7.6.1 KRaft)
-           │
-           ▼
-  [ Rust Processor Engine ] (Rust 1.87, Edition 2024)
-     ├── 11 Semantic Rules Validation & Deduplication
-     ├── Arrow Columnar / Parquet Zstd Serialization
-     ├── MinIO S3 Bronze Layer Storage
-     └── Spark-Style Dynamic R Worker Pool Dispatch
-           │
-           ├───> [ MinIO S3 Data Lake ] (Medallion: Bronze / Silver / Gold / Manifests)
-           │
-           ├───> [ R Feature Engine ] ──> Silver & Gold Parquet Feature Store
-           │
-           ├───> [ Python ML Worker ] ─> Isolation Forest Training ──> ONNX Model Export
-           │                                                                │
-           │                                                                ▼
-           ├───> [ Rust Inference Engine ] <── (UDS IPC / ONNX Runtime) ────┘
-           │
-           ├───> [ Go REST API Gateway ] (Go 1.26 REST Endpoints)
-           │
-           └───> [ Streamlit Risk Dashboard ] (Python 3.13 Risk Score Evidence UI)
+```mermaid
+flowchart TD
+    subgraph DataIngestion [" Data Ingestion Layer"]
+        DS["Kaggle CSV Dataset"] --> GI["Go Ingestor Service<br/>(Go 1.26)"]
+        GI -- "Publish JSON Event Envelopes" --> KF["Kafka Event Stream<br/>(cp-kafka 7.6.1 KRaft)"]
+    end
+
+    subgraph StreamProcessing [" Stream Processing & Validation"]
+        KF --> RP["Rust Processor Engine<br/>(Rust 1.87, Edition 2024)"]
+        RP -->|1. Validate 11 Semantic Rules| V["Data Quality & Deduplication"]
+        RP -->|2. Arrow / Parquet Zstd| AR["Parquet Serializer"]
+        RP -->|3. Durable 2PC Storage| MIO[("MinIO S3 Data Lake<br/>(Bronze / Silver / Gold / Manifests)")]
+    end
+
+    subgraph AnalyticsEngine [" Medallion Analytics & ML Pipeline"]
+        RP -->|4. Dynamic Dispatch| RFE["R Feature Engine<br/>(R 4.4 Worker Pool)"]
+        RFE -->|Silver & Gold Parquet| MIO
+        
+        PYML["Python ML Worker<br/>(Python 3.13)"] -->|Train Isolation Forest| ONNX["ONNX Model Export"]
+        ONNX -->|Save Model| MIO
+        ONNX -.->|UDS IPC / ONNX Runtime| RIE["Rust Inference Engine"]
+    end
+
+    subgraph ServingLayer [" Serving & Presentation Layer"]
+        MIO --> API["Go REST API Gateway<br/>(Go 1.26)"]
+        MIO --> UI["Streamlit Risk Dashboard<br/>(Python 3.13)"]
+        RIE --> API
+    end
+
+    classDef primary fill:#1e3a8a,stroke:#3b82f6,color:#ffffff,stroke-width:2px;
+    classDef storage fill:#581c87,stroke:#a855f7,color:#ffffff,stroke-width:2px;
+    classDef processing fill:#065f46,stroke:#10b981,color:#ffffff,stroke-width:2px;
+    classDef serving fill:#9a3412,stroke:#f97316,color:#ffffff,stroke-width:2px;
+
+    class GI,RP,API primary;
+    class KF,MIO storage;
+    class RFE,PYML,RIE processing;
+    class UI serving;
 ```
+
 
 ### Các Thành phần Dịch vụ (Core Services)
 
