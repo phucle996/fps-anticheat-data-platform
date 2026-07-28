@@ -1,6 +1,6 @@
 module pubg-anti-cheat/go-ingestor
 
-go 1.23.0
+go 1.26
 
 require (
 	github.com/minio/minio-go/v7 v7.0.70

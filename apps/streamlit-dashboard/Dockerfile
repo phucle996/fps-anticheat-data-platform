@@ -1,5 +1,5 @@
-# Sử dụng Python 3.11 Slim cho container gọn nhẹ
-FROM python:3.11-slim
+# Sử dụng Python 3.13 Slim cho container gọn nhẹ — latest stable
+FROM python:3.13-slim
 
 WORKDIR /app
 

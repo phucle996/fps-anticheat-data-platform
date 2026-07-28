@@ -7,7 +7,7 @@
 # ------------------------------------------
 # Stage 1: Build Stage (Biên dịch Go Binary)
 # ------------------------------------------
-FROM golang:1.23-alpine AS builder
+FROM golang:1.26-alpine AS builder
 
 # Cài đặt ca-certificates để tải HTTPS an toàn
 # Layer này cache ổn định — chỉ đổi khi update base image

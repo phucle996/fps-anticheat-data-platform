@@ -4,7 +4,7 @@
 # ------------------------------------------
 # Stage 1: Build Stage (Rust Release Binary)
 # ------------------------------------------
-FROM rust:1.86-slim-bookworm AS builder
+FROM rust:1.87-slim-bookworm AS builder
 
 # Cài đặt gói hệ thống cần thiết (pkg-config, libssl-dev, cmake cho rdkafka C binding)
 # Layer này cache ổn định — chỉ thay đổi khi cập nhật base image
