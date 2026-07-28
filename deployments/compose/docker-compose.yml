@@ -3,8 +3,6 @@
 # PUBG Anti-Cheat Data Platform (Local/Dev)
 # ==========================================
 
-version: '3.8'
-
 # Định nghĩa các dịch vụ hạ tầng trung tâm
 services:
   # ------------------------------------------
@@ -42,7 +40,7 @@ services:
       - pubg-platform-net
     healthcheck:
       # Kiểm tra Kafka sẵn sàng nhận kết nối qua kafka-broker-api-versions
-      test: ["CMD-SHELL", "kafka-broker-api-versions --bootstrap-server kafka:9092 > /dev/null 2>&1"]
+      test: [ "CMD-SHELL", "kafka-broker-api-versions --bootstrap-server kafka:9092 > /dev/null 2>&1" ]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -72,7 +70,7 @@ services:
       - pubg-platform-net
     healthcheck:
       # Kiểm tra liveness endpoint của MinIO
-      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      test: [ "CMD", "curl", "-f", "http://localhost:9000/minio/health/live" ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -89,7 +87,25 @@ services:
         condition: service_healthy # Chỉ chạy sau khi Kafka đã healthy
     volumes:
       - ./init/create-topics.sh:/create-topics.sh:ro
-    entrypoint: ["/bin/bash", "/create-topics.sh", "kafka:9092"]
+    entrypoint: [ "/bin/bash", "/create-topics.sh", "kafka:9092" ]
+    networks:
+      - pubg-platform-net
+
+  # ------------------------------------------
+  # 3b. Kafka UI Web Management Dashboard (Port 8080)
+  # ------------------------------------------
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: pubg-kafka-ui
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    depends_on:
+      kafka:
+        condition: service_healthy
+    environment:
+      - KAFKA_CLUSTERS_0_NAME=pubg-kafka-cluster
+      - KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS=kafka:9092
     networks:
       - pubg-platform-net
 
@@ -97,7 +113,7 @@ services:
   # 4. Init Container: MinIO Bucket Creator
   # ------------------------------------------
   init-minio:
-    image: minio/mc:RELEASE.2024-05-09T00-54-15Z
+    image: minio/mc:latest
     container_name: pubg-init-minio
     depends_on:
       minio:
@@ -109,7 +125,7 @@ services:
       - MINIO_BUCKET=pubg-data
     volumes:
       - ./init/create-buckets.sh:/create-buckets.sh:ro
-    entrypoint: ["/bin/sh", "/create-buckets.sh"]
+    entrypoint: [ "/bin/sh", "/create-buckets.sh" ]
     networks:
       - pubg-platform-net
 
@@ -154,20 +170,24 @@ services:
       - pubg-platform-net
 
   # ------------------------------------------
-  # 6. Python Machine Learning Worker
+  # 6. ML Platform 3-in-1 Ecosystem Container (Python ML + Rust ONNX + Go API)
   # ------------------------------------------
-  python-ml-worker:
+  ml-platform:
     build:
-      context: ../../apps/ml-platform/python-ml-worker
+      context: ../../apps/ml-platform
       dockerfile: Dockerfile
-    container_name: pubg-python-ml-worker
+    container_name: pubg-ml-platform
     restart: unless-stopped
+    ports:
+      - "8081:8081"
     depends_on:
       kafka:
         condition: service_healthy
       minio:
         condition: service_healthy
     environment:
+      - HTTP_PORT=8081
+      - IPC_SOCKET_PATH=/tmp/rust_inference.sock
       - KAFKA_BROKERS=kafka:9092
       - KAFKA_TOPIC_GOLD=pubg.v1.dataset.gold.ready
       - KAFKA_TOPIC_MODEL=pubg.v1.ml.model.ready
@@ -201,8 +221,6 @@ services:
       - MINIO_SECRET_KEY=minioadmin
     networks:
       - pubg-platform-net
-
-
 
 # ------------------------------------------
 # Docker Networks & Volumes Definition

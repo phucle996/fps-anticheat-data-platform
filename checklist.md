@@ -392,7 +392,7 @@
 
 ## Phase 20 — R Project Foundation
 
-* [x] Khởi tạo R project (`apps/r-processor`).
+* [x] Khởi tạo R project (`apps/rust-processor/r-processor`).
 * [x] Khởi tạo `renv` quản lý R packages độc lập.
 * [x] Tạo thư mục `R`.
 * [x] Tạo thư mục `scripts`.

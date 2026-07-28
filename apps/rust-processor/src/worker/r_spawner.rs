@@ -16,7 +16,8 @@ impl RWorkerSpawner {
         let max_permits = if max_concurrency == 0 { 4 } else { max_concurrency };
         Self {
             semaphore: Arc::new(Semaphore::new(max_permits)),
-            script_path: "apps/r-processor/scripts/run_batch.R".to_string(),
+            // Cập nhật đường dẫn Rscript entrypoint tương ứng với cấu trúc subfolder mới
+            script_path: "apps/rust-processor/r-processor/scripts/run_batch.R".to_string(),
         }
     }
 
@@ -27,7 +28,7 @@ impl RWorkerSpawner {
 
         // Spawn async background task để thực thi subprocess R
         tokio::spawn(async move {
-            // Lấy permit từ Semaphore để đảm bảo không bị cạn kiệt CPU/RAM
+            // Lấy permit từ Semaphore để đảm bảo không bị cạn kiệt CPU/RAM (Concurrency Control)
             let _permit = match sem.acquire_owned().await {
                 Ok(p) => p,
                 Err(err) => {
@@ -38,14 +39,16 @@ impl RWorkerSpawner {
 
             info!(
                 manifest = %manifest_path,
-                "Khởi chạy Rscript Async Subprocess Worker..."
+                "Khởi chạy Rscript Async Subprocess Worker từ subfolder apps/rust-processor/r-processor..."
             );
 
-            // Khởi chạy Rscript Subprocess
+            // Khởi chạy Rscript Subprocess với Working Directory đặt tại apps/rust-processor/r-processor
+            // Giúp Rscript tự động nạp các module tương đối (R/config.R, R/silver_preprocessor.R...) an toàn
             let output = Command::new("Rscript")
                 .arg(&script)
                 .arg("--manifest")
                 .arg(&manifest_path)
+                .current_dir("apps/rust-processor/r-processor")
                 .output()
                 .await;
 

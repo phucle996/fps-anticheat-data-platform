@@ -29,8 +29,8 @@ check-deps:
 init:
 	@echo "[+] 1. Khởi tạo file môi trường .env từ .env.example..."
 	@if [ ! -f .env ]; then cp .env.example .env; fi
-	@echo "[+] 2. Khởi chạy container hạ tầng Kafka & MinIO..."
-	docker compose -f deployments/compose/docker-compose.yml up -d
+	@echo "[+] 2. Khởi chạy container hạ tầng Kafka, MinIO & Kafka UI..."
+	docker compose -f deployments/compose/docker-compose.yml up -d kafka minio kafka-ui
 	@echo "[+] 3. Đợi container hạ tầng sẵn sàng..."
 	@sleep 5
 	@echo "[+] 4. Khởi tạo 3 Buckets S3 & 9 tầng thư mục Medallion Data Lake trên MinIO..."
@@ -82,8 +82,9 @@ run:
 		-e BATCH_SIZE=50 \
 		-e FLUSH_INTERVAL_MS=1000 \
 		pubg-rust-processor:latest & PID_RUST=$$! ; sleep 8 ; kill $$PID_RUST > /dev/null 2>&1 || true
+	# Đã di chuyển r-processor thành subfolder thuộc apps/rust-processor/r-processor
 	@echo "[+] 4. R Processor Medallion ETL (Silver & Gold Feature Engine)..."
-	@cd apps/r-processor && Rscript tests/test_silver_preprocessor.R > /dev/null 2>&1 && Rscript tests/test_gold_feature_engine.R > /dev/null 2>&1 && Rscript tests/test_eda_analyzer.R > /dev/null 2>&1
+	@cd apps/rust-processor/r-processor && Rscript tests/test_silver_preprocessor.R > /dev/null 2>&1 && Rscript tests/test_gold_feature_engine.R > /dev/null 2>&1 && Rscript tests/test_eda_analyzer.R > /dev/null 2>&1
 	@echo "[+] 5. ML Training & Inference Engine Verification..."
 	@cd apps/ml-platform/python-ml-worker && venv/bin/python -m pytest > /dev/null 2>&1
 	@cd apps/ml-platform/rust-inference && cargo test > /dev/null 2>&1

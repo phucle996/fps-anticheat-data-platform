@@ -76,10 +76,10 @@ Dữ liệu tĩnh từ Kaggle được stream qua Kafka, xử lý batch hiệu n
 
 ```text
 fps-anticheat/
-├── apps/                             # Microservices độc lập
+├── apps/                             # Microservices & Processors
 │   ├── go-ingestor/                  # [Go 1.26] Nạp & stream CSV vào Kafka
 │   ├── rust-processor/               # [Rust 1.87] Stream Processing + Parquet S3 + R Worker Pool
-│   ├── r-processor/                  # [R 4.4] ETL Pipeline: Bronze -> Silver -> Gold + EDA
+│   │   └── r-processor/              #   [R 4.4] Subprocess ETL: Bronze -> Silver -> Gold + EDA
 │   ├── ml-platform/                  # ML Platform tích hợp 3-in-1:
 │   │   ├── python-ml-worker/         #   [Python 3.13] Train ML Model + Export ONNX
 │   │   ├── rust-inference/           #   [Rust 1.87] ONNX Inference Engine + UDS IPC
@@ -144,7 +144,7 @@ fps-anticheat-datalake/
 |:---:|:---|:---|:---|
 | 1 | **Go Ingestor** | Go 1.26, Kafka, MinIO | [apps/go-ingestor/README.md](apps/go-ingestor/README.md) |
 | 2 | **Rust Stream Processor** | Rust 1.87, rdkafka, Arrow, Parquet | [apps/rust-processor/README.md](apps/rust-processor/README.md) |
-| 3 | **R Processor** | R 4.4, arrow, dplyr | *(chưa có README — xem `apps/r-processor/R/`)* |
+| 3 | **R Processor** | R 4.4, arrow, dplyr | *(Subprocess của Rust — xem `apps/rust-processor/r-processor/R/`)* |
 | 4 | **ML Platform (3-in-1)** | Python 3.13, Rust 1.87, Go 1.26 | [apps/ml-platform/README.md](apps/ml-platform/README.md) |
 | 5 | **Streamlit Dashboard** | Python 3.13, Streamlit | *(chưa có README — xem `apps/streamlit-dashboard/app.py`)* |
 

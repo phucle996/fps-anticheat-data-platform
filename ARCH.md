@@ -26,7 +26,7 @@ flowchart TD
 |:---|:---|:---|:---|
 | **Go Ingestor** | Go 1.26 | Download dataset, chuẩn hóa & stream dữ liệu vào Kafka | [apps/go-ingestor/README.md](apps/go-ingestor/README.md) |
 | **Rust Processor** | Rust 1.87 | Stream processing, 2PC write Parquet vào MinIO, điều phối R Worker subprocess | [apps/rust-processor/README.md](apps/rust-processor/README.md) |
-| **R Processor** | R 4.4 | Subprocess ETL (Bronze $\rightarrow$ Silver $\rightarrow$ Gold) & EDA reports | Subprocess trong container Rust (`apps/r-processor`) |
+| **R Processor** | R 4.4 | Subprocess ETL (Bronze $\rightarrow$ Silver $\rightarrow$ Gold) & EDA reports | Subprocess thuộc container Rust (`apps/rust-processor/r-processor`) |
 | **ML Platform** | Python 3.13, Rust 1.87, Go 1.26 | Huấn luyện mô hình, suy luận ONNX & REST API Gateway | [apps/ml-platform/README.md](apps/ml-platform/README.md) |
 | **Streamlit Dashboard** | Python 3.13 / Streamlit | Giao diện Web UI phân tích rủi ro & bằng chứng gian lận | Sub-project frontend (`apps/streamlit-dashboard`) |
 
@@ -62,6 +62,7 @@ fps-anticheat-datalake/                     pubg-models/
 ```text
 deployments/compose/docker-compose.yml
 ├── kafka               (Kafka Broker KRaft Mode, Port 9092)
+├── kafka-ui            (Kafka UI Web Dashboard, Port 8080)
 ├── minio               (MinIO S3 Storage, Ports 9000+9001)
 ├── init-kafka          (Tạo Kafka Topics)
 ├── init-minio          (Tạo MinIO Buckets)
