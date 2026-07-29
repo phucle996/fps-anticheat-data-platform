@@ -4,7 +4,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -12,9 +11,9 @@ import (
 	"pubg-anti-cheat/go-ingestor/internal/contract"
 )
 
-// Normalizer định nghĩa interface chuẩn hóa bản ghi thô thành EventEnvelope hoặc InvalidRecord
+// Normalizer định nghĩa interface chuẩn hóa bản ghi thô thành EventEnvelope (*contract.EventEnvelope hoặc *contract.KillEventEnvelope) hoặc InvalidRecord
 type Normalizer interface {
-	Normalize(raw *RawRecord) (*contract.EventEnvelope, *contract.InvalidRecord, error)
+	Normalize(raw *RawRecord) (interface{}, *contract.InvalidRecord, error)
 }
 
 // DatasetSchema định nghĩa 2 schema dataset được hỗ trợ
@@ -76,7 +75,7 @@ func detectSchema(raw *RawRecord) DatasetSchema {
 
 // Normalize thực thi luồng parse, sinh event_id định hạn SHA-256 và validate dữ liệu
 // Thread-safe: detectSchema là pure function stateless, không có shared mutable state
-func (n *PlayerStatNormalizer) Normalize(raw *RawRecord) (*contract.EventEnvelope, *contract.InvalidRecord, error) {
+func (n *PlayerStatNormalizer) Normalize(raw *RawRecord) (interface{}, *contract.InvalidRecord, error) {
 	schema := detectSchema(raw) // Gọi package-level function, không đụng state
 
 	switch schema {
@@ -191,83 +190,94 @@ func (n *PlayerStatNormalizer) normalizeFinishPlacement(raw *RawRecord) (*contra
 }
 
 // normalizeMatchDeaths xử lý dataset skihikingkevin/pubg-match-deaths (kill_match_stats_final_*.csv)
-// Columns: killer_name, match_id, killed_by, killer_placement, killer_position_x, killer_position_y, time, map, victim_name, victim_placement
-// Mỗi dòng = 1 kill event của killer — ánh xạ sang PlayerStatPayload theo logic kill event
-func (n *PlayerStatNormalizer) normalizeMatchDeaths(raw *RawRecord) (*contract.EventEnvelope, *contract.InvalidRecord, error) {
+// Columns: killer_name, match_id, killed_by, killer_placement, killer_position_x, killer_position_y, time, map, victim_name, victim_placement, victim_position_x, victim_position_y
+// Trả về contract.KillEventEnvelope chứa đúng 11 trường raw telemetry (nullable pointer fields), không ép kiểu proxy sai nghĩa
+func (n *PlayerStatNormalizer) normalizeMatchDeaths(raw *RawRecord) (*contract.KillEventEnvelope, *contract.InvalidRecord, error) {
 	var valErrors []string
 
-	// 1. Trích xuất định danh từ schema match_deaths
-	// killer_name dùng làm player_id — đại diện cho người chơi thực hiện kill
-	// Nếu killer_name rỗng → player chết do môi trường (BlueZone/RedZone/Bleeding/Explosion)
-	// Trong trường hợp này, dùng victim_name làm player_id để track nạn nhân
-	killerName := strings.TrimSpace(raw.Fields["killer_name"])
-	victimName := strings.TrimSpace(raw.Fields["victim_name"])
 	matchID := strings.TrimSpace(raw.Fields["match_id"])
-
-	var playerID string
-	var killsPerRecord int64
-	if killerName != "" {
-		// Normal kill: killer là người chơi
-		playerID = killerName
-		killsPerRecord = 1
-	} else {
-		// Environmental death (BlueZone, RedZone, Bleeding, ...): track theo victim
-		// Kills = 0 vì đây không phải kill bởi người chơi
-		playerID = victimName
-		killsPerRecord = 0
-	}
-
-	if playerID == "" {
-		valErrors = append(valErrors, "thiếu cả 'killer_name' lẫn 'victim_name' — không thể xác định player_id")
-	}
 	if matchID == "" {
 		valErrors = append(valErrors, "thiếu trường bắt buộc 'match_id'")
 	}
 
-	// 2. Mỗi dòng = 1 kill event → Kills=1, HeadshotKills cần kiểm tra thêm
-	// killed_by chứa vũ khí: nếu chứa "head" hoặc một số weapon như "VSS" thì không đủ data cho headshot
-	// Vì schema không có trường headshot trực tiếp → HeadshotKills=0 (conservative)
-	const headshotKillsPerRecord int64 = 0
-
-	// 3. Tính walkDistance từ vị trí killer (Euclidean distance từ origin)
-	// Đây là vị trí trên map, dùng làm proxy cho movement distance
-	posX, errX := parseFloat(raw.Fields["killer_position_x"])
-	posY, errY := parseFloat(raw.Fields["killer_position_y"])
-	var walkDistance float64
-	if errX == nil && errY == nil {
-		// Magnitude của vector vị trí — đại diện cho khoảng cách từ trung tâm map
-		walkDistance = math.Sqrt(posX*posX+posY*posY) / 1000.0 // Scale từ game units về mét ước tính
+	// 1. Killer & Victim Names (Nullable)
+	var killerNamePtr, victimNamePtr *string
+	if kName := strings.TrimSpace(raw.Fields["killer_name"]); kName != "" {
+		killerNamePtr = &kName
+	}
+	if vName := strings.TrimSpace(raw.Fields["victim_name"]); vName != "" {
+		victimNamePtr = &vName
 	}
 
-	// 4. Parse survival time từ field "time" (giây trong trận)
-	survivalDuration, errT := parseFloat(raw.Fields["time"])
-	if errT != nil {
-		// time không bắt buộc — fallback về 0
-		survivalDuration = 0
+	// Ít nhất phải có killer hoặc victim name
+	var playerID string
+	if killerNamePtr != nil {
+		playerID = *killerNamePtr
+	} else if victimNamePtr != nil {
+		playerID = *victimNamePtr
+	} else {
+		valErrors = append(valErrors, "thiếu cả 'killer_name' lẫn 'victim_name' — không thể xác định player_id")
 	}
 
-	// 5. Parse placement thành winPlacePerc: killer_placement=1 → 1.0 (tốt nhất), cao hơn → nhỏ hơn
-	var winPlacePercPtr *float64
-	if placementStr, ok := raw.Fields["killer_placement"]; ok && strings.TrimSpace(placementStr) != "" {
-		placement, errP := parseFloat(placementStr)
-		if errP == nil && placement > 0 {
-			// Normalize placement: placement 1 = top rank → winPlacePerc gần 1.0
-			// Dùng 1/placement làm proxy (không biết tổng số người chơi)
-			val := 1.0 / placement
-			winPlacePercPtr = &val
+	// 2. Killer & Victim Placements (Nullable Int)
+	var killerPlacementPtr, victimPlacementPtr *int
+	if kpStr := strings.TrimSpace(raw.Fields["killer_placement"]); kpStr != "" {
+		if val, err := strconv.Atoi(kpStr); err == nil {
+			killerPlacementPtr = &val
+		}
+	}
+	if vpStr := strings.TrimSpace(raw.Fields["victim_placement"]); vpStr != "" {
+		if val, err := strconv.Atoi(vpStr); err == nil {
+			victimPlacementPtr = &val
 		}
 	}
 
-	// 6. DamageDealt — schema không có trường này → dùng 0 (data limitation)
-	// Trong kill event, damage implied là >= 100 (đủ để kill) nhưng không có exact value
-	const damageDealtProxy float64 = 0
+	// 3. Killer Position X & Y (Nullable Float)
+	var killerXPtr, killerYPtr *float64
+	if kxStr := strings.TrimSpace(raw.Fields["killer_position_x"]); kxStr != "" {
+		if val, err := parseFloat(kxStr); err == nil {
+			killerXPtr = &val
+		}
+	}
+	if kyStr := strings.TrimSpace(raw.Fields["killer_position_y"]); kyStr != "" {
+		if val, err := parseFloat(kyStr); err == nil {
+			killerYPtr = &val
+		}
+	}
 
-	// 7. Semantic validation cho match_deaths schema
+	// 4. Victim Position X & Y (Nullable Float)
+	var victimXPtr, victimYPtr *float64
+	if vxStr := strings.TrimSpace(raw.Fields["victim_position_x"]); vxStr != "" {
+		if val, err := parseFloat(vxStr); err == nil {
+			victimXPtr = &val
+		}
+	}
+	if vyStr := strings.TrimSpace(raw.Fields["victim_position_y"]); vyStr != "" {
+		if val, err := parseFloat(vyStr); err == nil {
+			victimYPtr = &val
+		}
+	}
+
+	// 5. Event Time Seconds (field "time" trong CSV, Nullable Float)
+	var eventTimePtr *float64
+	if tStr := strings.TrimSpace(raw.Fields["time"]); tStr != "" {
+		if val, err := parseFloat(tStr); err == nil {
+			eventTimePtr = &val
+		}
+	}
+
+	// 6. Weapon / Killed By (Nullable String)
+	var weaponPtr *string
+	if wStr := strings.TrimSpace(raw.Fields["killed_by"]); wStr != "" {
+		weaponPtr = &wStr
+	}
+
+	// Validation rule: killer_name không được trùng với match_id
 	if playerID == matchID && playerID != "" {
 		valErrors = append(valErrors, "killer_name và match_id không được giống nhau")
 	}
 
-	// 8. Trả về InvalidRecord nếu có lỗi validation
+	// Trả về InvalidRecord nếu có lỗi validation
 	if len(valErrors) > 0 {
 		return nil, &contract.InvalidRecord{
 			SourceFile:       raw.SourceFile,
@@ -278,13 +288,41 @@ func (n *PlayerStatNormalizer) normalizeMatchDeaths(raw *RawRecord) (*contract.E
 		}, nil
 	}
 
-	// 9. Đóng gói EventEnvelope với Op = OpKillEvent (per-kill event)
-	envelope := n.buildEnvelope(
-		contract.OpKillEvent, string(SchemaMatchDeaths),
-		matchID, playerID, raw,
-		killsPerRecord, headshotKillsPerRecord, damageDealtProxy,
-		walkDistance, 0, 0, survivalDuration, winPlacePercPtr,
-	)
+	// Sinh Event ID deterministic (SHA-256)
+	eventIDStr := fmt.Sprintf("%s:%s:%s:%d", matchID, playerID, raw.SourceFile, raw.RecordIndex)
+	hasher := sha256.New()
+	hasher.Write([]byte(eventIDStr))
+	eventID := hex.EncodeToString(hasher.Sum(nil))
+
+	envelope := &contract.KillEventEnvelope{
+		SchemaVersion: "1.0",
+		EventID:       eventID,
+		Op:            contract.OpKillEventRaw,
+		EventTime:     nil,
+		IngestTime:    time.Now().UTC(),
+		MatchID:       matchID,
+		PlayerID:      playerID,
+		Source: contract.SourceMetadata{
+			Provider:    "kaggle",
+			DatasetID:   n.datasetID,
+			SchemaType:  string(SchemaMatchDeaths),
+			SourceFile:  raw.SourceFile,
+			RecordIndex: raw.RecordIndex,
+		},
+		Payload: contract.KillEventPayload{
+			MatchID:          matchID,
+			KillerName:       killerNamePtr,
+			VictimName:       victimNamePtr,
+			KillerPlacement:  killerPlacementPtr,
+			VictimPlacement:  victimPlacementPtr,
+			KillerPositionX:  killerXPtr,
+			KillerPositionY:  killerYPtr,
+			VictimPositionX:  victimXPtr,
+			VictimPositionY:  victimYPtr,
+			EventTimeSeconds: eventTimePtr,
+			Weapon:           weaponPtr,
+		},
+	}
 
 	return envelope, nil, nil
 }

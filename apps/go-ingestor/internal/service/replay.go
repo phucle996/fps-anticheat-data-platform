@@ -44,6 +44,7 @@ type Replayer struct {
 	checkpointStore CheckpointStore // MinIO S3 Checkpoint Store
 	flusher         *BatchFlusher   // Bộ đệm Micro-Batching
 	datasetID       string          // ID dataset đang replay
+	datasetSHA256   string          // Hash SHA256 của dataset zip
 	sourceFile      string          // Tên file CSV nguồn
 	log             *logrus.Entry
 	stats           ReplayStatistics
@@ -90,11 +91,11 @@ func (r *Replayer) Run(ctx context.Context) (*ReplayStatistics, error) {
 		cpState, err := r.checkpointStore.Load(ctx)
 		if err != nil {
 			r.log.WithError(err).Warn("Không thể nạp Checkpoint từ MinIO S3, chạy từ bản ghi mặc định")
-		} else if cpState != nil && cpState.LastCompletedRecordIndex > 0 {
+		} else if cpState != nil && cpState.LastAckedRecordIndex > 0 {
 			// Resume từ chỉ số kế tiếp
-			r.cfg.StartRecord = cpState.LastCompletedRecordIndex + 1
+			r.cfg.StartRecord = cpState.LastAckedRecordIndex + 1
 			r.log.WithFields(logrus.Fields{
-				"last_completed": cpState.LastCompletedRecordIndex,
+				"last_completed": cpState.LastAckedRecordIndex,
 				"resume_start":   r.cfg.StartRecord,
 			}).Info("Đã khôi phục thành công điểm dừng Replay (Resume) từ MinIO S3 Checkpoint!")
 		}
@@ -258,28 +259,28 @@ func (r *Replayer) saveCheckpoint(ctx context.Context) {
 		return
 	}
 
-	// Chỉ số bản ghi hoàn thành mới nhất = StartRecord + RecordsRead - 1
 	lastIndex := r.cfg.StartRecord + r.stats.RecordsRead - 1
 	if r.cfg.StartRecord <= 1 {
 		lastIndex = r.stats.RecordsRead
 	}
 
 	state := &CheckpointState{
-		DatasetID:                r.datasetID,
-		SourceFile:               r.sourceFile,
-		LastCompletedRecordIndex: lastIndex,
-		UpdatedAt:                time.Now().UTC(),
+		DatasetID:            r.datasetID,
+		DatasetSHA256:        r.datasetSHA256,
+		SourceFile:           r.sourceFile,
+		SchemaVersion:        "kill-event-v1",
+		LastAckedRecordIndex: lastIndex,
+		UpdatedAt:            time.Now().UTC(),
 	}
 
 	if err := r.checkpointStore.Save(ctx, state); err != nil {
 		r.log.WithError(err).Warn("Không thể cập nhật Checkpoint state lên MinIO S3")
 	} else {
-		// Log Info thay vì Debug để người dùng thấy rõ vị trí dừng trên Terminal
 		r.log.WithFields(logrus.Fields{
 			"last_completed": lastIndex,
-			"dataset_id":    r.datasetID,
-			"source_file":   r.sourceFile,
-		}).Info("💾 [CHECKPOINT] Đã lưu vị trí Checkpoint lên MinIO S3. Có thể Resume từ dòng này sau khi Restart!")
+			"dataset_id":     r.datasetID,
+			"source_file":    r.sourceFile,
+		}).Info("💾 [CHECKPOINT] Đã lưu vị trí Checkpoint lên MinIO S3.")
 	}
 }
 
@@ -393,8 +394,8 @@ func (s *ReplayService) Run(ctx context.Context, replayCfg ReplayerConfig) (*Rep
 
 	normalizer := NewPlayerStatNormalizer(manifest.DatasetID)
 
-	// Khởi tạo MinIOCheckpointStore trên pubg-data/checkpoints/go-replay/state.json
-	cpStore := NewMinIOCheckpointStore(s.minioCli, "checkpoints/go-replay/state.json")
+	// Khởi tạo MinIOCheckpointStore với S3 key theo namespace sha256 + selectedFile
+	cpStore := NewMinIOCheckpointStore(s.minioCli, manifest.ArchiveChecksum, manifest.SelectedFile)
 
 	replayerEngine := NewReplayer(replayCfg, csvParser, normalizer, kafkaProducer, cpStore, manifest.DatasetID, manifest.SelectedFile, s.log)
 	stats, err := replayerEngine.Run(ctx)

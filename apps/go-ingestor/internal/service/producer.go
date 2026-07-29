@@ -17,6 +17,8 @@ import (
 type Producer interface {
 	// ProduceEvent phát EventEnvelope hợp lệ vào Raw Topic (Key = match_id)
 	ProduceEvent(ctx context.Context, envelope *contract.EventEnvelope) error
+	// ProduceKillEvent phát KillEventEnvelope hợp lệ vào Raw Topic (Key = match_id)
+	ProduceKillEvent(ctx context.Context, envelope *contract.KillEventEnvelope) error
 	// ProduceInvalid phát InvalidRecord vi phạm vào DLQ Topic (Key = source_file)
 	ProduceInvalid(ctx context.Context, invalid *contract.InvalidRecord) error
 	// Close đóng các Kafka writers và flush dữ liệu an toàn
@@ -95,6 +97,30 @@ func (kp *KafkaProducer) ProduceEvent(ctx context.Context, envelope *contract.Ev
 			"match_id": envelope.MatchID,
 		}).WithError(err).Error("Phát tin nhắn Kafka thất bại (Fail-Close Triggered)")
 		return fmt.Errorf("phát tin nhắn Kafka thất bại vào topic %s: %w", kp.rawWriter.Topic, err)
+	}
+
+	return nil
+}
+
+// ProduceKillEvent phát tin nhắn KillEventEnvelope hợp lệ vào Kafka (Key = match_id)
+func (kp *KafkaProducer) ProduceKillEvent(ctx context.Context, envelope *contract.KillEventEnvelope) error {
+	payloadBytes, err := json.Marshal(envelope)
+	if err != nil {
+		return fmt.Errorf("serialize KillEventEnvelope thất bại: %w", err)
+	}
+
+	msg := kafka.Message{
+		Key:   []byte(envelope.MatchID),
+		Value: payloadBytes,
+		Time:  envelope.IngestTime,
+	}
+
+	if err := kp.rawWriter.WriteMessages(ctx, msg); err != nil {
+		kp.log.WithFields(logrus.Fields{
+			"event_id": envelope.EventID,
+			"match_id": envelope.MatchID,
+		}).WithError(err).Error("Phát tin nhắn KillEvent Kafka thất bại (Fail-Close Triggered)")
+		return fmt.Errorf("phát tin nhắn KillEvent Kafka thất bại vào topic %s: %w", kp.rawWriter.Topic, err)
 	}
 
 	return nil

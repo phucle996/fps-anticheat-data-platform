@@ -5,11 +5,11 @@ use arrow::datatypes::{DataType, Field, Schema, SchemaRef};
 use arrow::record_batch::RecordBatch;
 use std::sync::Arc;
 
-/// ArrowConverter quản lý khởi tạo Arrow Schema và chuyển đổi EventEnvelope sang Apache Arrow RecordBatch
+/// ArrowConverter quản lý khởi tạo Arrow Schema và chuyển đổi EventEnvelope/KillEventEnvelope sang Apache Arrow RecordBatch
 pub struct ArrowConverter;
 
 impl ArrowConverter {
-    /// Build_schema tạo định nghĩa Arrow Schema 19 cột chuẩn hóa
+    /// Build_schema tạo định nghĩa Arrow Schema 19 cột chuẩn hóa với đầy đủ thông tin telemetry
     pub fn build_schema() -> SchemaRef {
         Arc::new(Schema::new(vec![
             Field::new("event_id", DataType::Utf8, false),
@@ -30,7 +30,7 @@ impl ArrowConverter {
             Field::new("ride_distance", DataType::Float64, false),
             Field::new("swim_distance", DataType::Float64, false),
             Field::new("survival_duration", DataType::Float64, false),
-            Field::new("win_place_perc", DataType::Float64, true), // Nullable Column
+            Field::new("win_place_perc", DataType::Float64, true),
         ]))
     }
 
@@ -39,7 +39,6 @@ impl ArrowConverter {
         let schema = Self::build_schema();
         let len = events.len();
 
-        // 1. Tạo các Builders / Vectors bộ đệm mảng dạng cột
         let mut event_id_vec = Vec::with_capacity(len);
         let mut schema_ver_vec = Vec::with_capacity(len);
         let mut op_vec = Vec::with_capacity(len);
@@ -61,7 +60,6 @@ impl ArrowConverter {
         let mut survival_vec = Vec::with_capacity(len);
         let mut win_place_vec = Vec::with_capacity(len);
 
-        // 2. Duyệt qua từng bản ghi để nạp dữ liệu vào vectors
         for e in events {
             event_id_vec.push(e.event_id.as_str());
             schema_ver_vec.push(e.schema_version.as_str());
@@ -85,7 +83,6 @@ impl ArrowConverter {
             win_place_vec.push(e.payload.win_place_perc);
         }
 
-        // 3. Khởi tạo Arrow Arrays từ vectors
         let arr_event_id = StringArray::from(event_id_vec);
         let arr_schema_ver = StringArray::from(schema_ver_vec);
         let arr_op = StringArray::from(op_vec);
@@ -105,9 +102,8 @@ impl ArrowConverter {
         let arr_ride = Float64Array::from(ride_vec);
         let arr_swim = Float64Array::from(swim_vec);
         let arr_survival = Float64Array::from(survival_vec);
-        let arr_win_place = Float64Array::from(win_place_vec); // Tự động xử lý Nullable float64
+        let arr_win_place = Float64Array::from(win_place_vec);
 
-        // 4. Tạo Apache Arrow RecordBatch
         RecordBatch::try_new(
             schema,
             vec![

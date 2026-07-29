@@ -1,0 +1,56 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://pubg-anticheat.org/schemas/kill-event.json",
+  "title": "KillEventPayload",
+  "description": "Schema chuẩn định nghĩa cấu trúc Telemetry Kill Event từ Kaggle kill_match_stats_final_0.csv",
+  "type": "object",
+  "required": [
+    "match_id"
+  ],
+  "properties": {
+    "match_id": {
+      "type": "string",
+      "description": "Mã trận đấu PUBG"
+    },
+    "killer_name": {
+      "type": ["string", "null"],
+      "description": "Tên người chơi thực hiện cú kill (killer)"
+    },
+    "victim_name": {
+      "type": ["string", "null"],
+      "description": "Tên người chơi bị tiêu diệt (victim)"
+    },
+    "killer_placement": {
+      "type": ["integer", "null"],
+      "description": "Thứ hạng chung cuộc của killer trong trận đấu"
+    },
+    "victim_placement": {
+      "type": ["integer", "null"],
+      "description": "Thứ hạng chung cuộc của victim khi bị hạ gục"
+    },
+    "killer_position_x": {
+      "type": ["number", "null"],
+      "description": "Tọa độ X của killer tại thời điểm kill"
+    },
+    "killer_position_y": {
+      "type": ["number", "null"],
+      "description": "Tọa độ Y của killer tại thời điểm kill"
+    },
+    "victim_position_x": {
+      "type": ["number", "null"],
+      "description": "Tọa độ X của victim tại thời điểm kill"
+    },
+    "victim_position_y": {
+      "type": ["number", "null"],
+      "description": "Tọa độ Y của victim tại thời điểm kill"
+    },
+    "event_time_seconds": {
+      "type": ["number", "null"],
+      "description": "Thời điểm diễn ra sự kiện kill tính bằng giây từ đầu trận"
+    },
+    "weapon": {
+      "type": ["string", "null"],
+      "description": "Loại vũ khí/nguyên nhân gây ra cú kill"
+    }
+  }
+}

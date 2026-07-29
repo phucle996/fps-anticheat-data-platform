@@ -33,10 +33,10 @@ func TestCheckpointStore_SaveAndLoad(t *testing.T) {
 	ctx := context.Background()
 
 	state := &service.CheckpointState{
-		DatasetID:                "test-dataset",
-		SourceFile:               "train_V2.csv",
-		LastCompletedRecordIndex: 50,
-		UpdatedAt:                time.Now().UTC(),
+		DatasetID:            "test-dataset",
+		SourceFile:           "train_V2.csv",
+		LastAckedRecordIndex: 50,
+		UpdatedAt:            time.Now().UTC(),
 	}
 
 	err := store.Save(ctx, state)
@@ -49,8 +49,8 @@ func TestCheckpointStore_SaveAndLoad(t *testing.T) {
 		t.Fatalf("Load checkpoint thất bại: %v", err)
 	}
 
-	if loaded == nil || loaded.LastCompletedRecordIndex != 50 {
-		t.Errorf("LastCompletedRecordIndex không chính xác: %+v", loaded)
+	if loaded == nil || loaded.LastAckedRecordIndex != 50 {
+		t.Errorf("LastAckedRecordIndex không chính xác: %+v", loaded)
 	}
 }
 
@@ -58,8 +58,8 @@ func TestCheckpointStore_SaveAndLoad(t *testing.T) {
 func TestCheckpointStore_ResetState(t *testing.T) {
 	store := &MockCheckpointStore{
 		state: &service.CheckpointState{
-			DatasetID:                "test-dataset",
-			LastCompletedRecordIndex: 100,
+			DatasetID:            "test-dataset",
+			LastAckedRecordIndex: 100,
 		},
 	}
 

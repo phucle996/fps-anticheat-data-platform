@@ -133,6 +133,11 @@ test:
 	@echo "[+] Unit test Streamlit UI Dashboard..."
 	@cd apps/streamlit-dashboard && venv/bin/python -m pytest
 
+## verify-invariants: Kiểm tra 7 Định luật Bảo toàn Dữ liệu trên Data Lake S3
+verify-invariants:
+	@echo "[+] Kiểm tra 7 Định luật Bảo toàn Dữ liệu trên MinIO Data Lake S3..."
+	@python3 scripts/verify_invariants.py
+
 ## clean: Dọn dẹp các file build tạm và log
 clean:
 	@echo "[+] Dọn dẹp dữ liệu tạm và file build..."

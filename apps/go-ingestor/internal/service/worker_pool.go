@@ -10,7 +10,7 @@ import (
 
 // IngestionResult chứa kết quả sau khi parse & normalize 1 bản ghi CSV thô
 type IngestionResult struct {
-	Envelope      *contract.EventEnvelope // EventEnvelope hợp lệ (nếu có)
+	Envelope      interface{}             // EventEnvelope (*contract.EventEnvelope hoặc *contract.KillEventEnvelope) hợp lệ
 	InvalidRecord *contract.InvalidRecord // InvalidRecord vi phạm schema (nếu có)
 	Err           error                   // Lỗi hệ thống nghiêm trọng
 }

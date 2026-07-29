@@ -28,7 +28,7 @@
     "op": {
       "type": "string",
       "description": "Tên thao tác/sự kiện dữ liệu",
-      "enum": ["data.player_stat.match_summary"]
+      "enum": ["data.player_stat.match_summary", "data.kill_event.raw"]
     },
     "event_time": {
       "type": ["string", "null"],

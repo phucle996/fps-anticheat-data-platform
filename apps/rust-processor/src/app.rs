@@ -188,15 +188,12 @@ impl StreamProcessorApp {
             // Nếu commit fail: warn nhưng vẫn dispatch R worker (data đã safe trên S3)
             match self.consumer.commit_partition_offsets(&completed_batch.partition_offsets) {
                 Err(err) => {
-                    // Kafka commit fail: data đã lên S3, nhưng offset chưa advance
-                    // → Kafka sẽ redeliver batch này khi restart → R dedup xử lý trùng lặp
                     error!(
                         error = %err,
                         batch_id = %completed_batch.batch_id,
                         bronze_path = %bronze_path,
                         "Lỗi commit Kafka offsets — data đã lên S3 nhưng offset chưa advance, batch có thể bị redeliver"
                     );
-                    // Vẫn dispatch R worker vì data đã an toàn trên S3
                     self.r_pool.dispatch_manifest(manifest_path);
                 }
                 Ok(()) => {
@@ -210,9 +207,28 @@ impl StreamProcessorApp {
                         "Hoàn tất ordered write (S3 Parquet → Manifest → Offset Commit) cho batch"
                     );
 
-                    // 8. Kích hoạt Dynamic R Worker Pool (Non-blocking Task Dispatch)
                     self.r_pool.dispatch_manifest(manifest_path);
                 }
+            }
+        } else if val_outcome.invalid_count > 0 || dedup_outcome.duplicate_count > 0 {
+            // Batch 100% invalid hoặc duplicate (không có unique valid record để ghi Parquet)
+            // Vì DLQ records đã được upload sang bronze/invalid/ ở bước 1, offset vẫn phải được commit
+            // để tránh consumer lặp lại batch này mãi mãi sau khi restart.
+            if let Err(err) = self.consumer.commit_partition_offsets(&completed_batch.partition_offsets) {
+                error!(
+                    error = %err,
+                    batch_id = %completed_batch.batch_id,
+                    invalid_count = val_outcome.invalid_count,
+                    duplicate_count = dedup_outcome.duplicate_count,
+                    "Lỗi commit Kafka offsets cho invalid/duplicate-only batch"
+                );
+            } else {
+                info!(
+                    batch_id = %completed_batch.batch_id,
+                    invalid_count = val_outcome.invalid_count,
+                    duplicate_count = dedup_outcome.duplicate_count,
+                    "Đã commit Kafka offsets cho batch 100% invalid/duplicate (data đã durable trên DLQ)"
+                );
             }
         }
 

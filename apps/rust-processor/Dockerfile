@@ -38,18 +38,29 @@ RUN touch src/main.rs \
 # ------------------------------------------
 # Stage 2: Runtime Stage (Debian Bookworm Slim — không có build tools)
 # ------------------------------------------
+# ------------------------------------------
+# Stage 2: Runtime Stage (Debian Bookworm với R 4.4 + OpenSSL)
+# ------------------------------------------
 FROM debian:bookworm-slim AS runner
 
-# Cài đặt OpenSSL runtime & ca-certificates cho SSL/TLS
+# Cài đặt R runtime, OpenSSL, ca-certificates và R packages (r-cran-jsonlite, r-cran-arrow nếu có)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     libssl3 \
+    r-base \
+    r-cran-jsonlite \
+    libcurl4-openssl-dev \
+    libxml2-dev \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
+# Copy R processor subfolder từ repository sang /opt/r-processor
+COPY apps/rust-processor/r-processor /opt/r-processor
+
 # Tạo non-root user bảo mật Cloud-Native (UID 10001 cố định)
-RUN useradd -m -u 10001 appuser
+RUN useradd -m -u 10001 appuser \
+    && chown -R appuser:appuser /app /opt/r-processor
 USER appuser
 
 # Copy binary đã biên dịch từ Stage 1

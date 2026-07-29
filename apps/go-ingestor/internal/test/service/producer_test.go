@@ -32,6 +32,17 @@ func (m *MockProducer) ProduceEvent(ctx context.Context, envelope *contract.Even
 	return nil
 }
 
+func (m *MockProducer) ProduceKillEvent(ctx context.Context, envelope *contract.KillEventEnvelope) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.shouldFail {
+		return errors.New("kafka cluster unavailable (mock error)")
+	}
+	// Chuyển sang EventEnvelope mock nếu cần
+	return nil
+}
+
 func (m *MockProducer) ProduceInvalid(ctx context.Context, invalid *contract.InvalidRecord) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()

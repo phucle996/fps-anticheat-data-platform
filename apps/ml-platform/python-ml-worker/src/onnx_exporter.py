@@ -14,18 +14,21 @@ class ONNXExporter:
     def export_bundle(model: Any, metrics: Dict[str, Any], version: str = "v1") -> Dict[str, bytes]:
         """Xuất toàn bộ ONNX Model Bundle hoàn chỉnh"""
         print(f"[ONNX EXPORTER] Đóng gói ONNX Model Bundle phiên bản {version}...")
-        
-        # 1. Chuyển đổi mô hình scikit-learn sang ONNX format
-        onnx_bytes = ONNXExporter._convert_to_onnx(model)
 
-        # 2. Tạo feature_schema.json (Giữ nguyên chuẩn 6 đặc trưng Gold)
+        # Lấy danh sách đặc trưng thực tế đã dùng khi huấn luyện
+        features_used = metrics.get("features_used", FEATURE_CONTRACT)
+
+        # 1. Chuyển đổi mô hình scikit-learn sang ONNX format
+        onnx_bytes = ONNXExporter._convert_to_onnx(model, feature_cols=features_used)
+
+        # 2. Tạo feature_schema.json
         feature_schema = {
             "model_name": "pubg-risk",
             "model_version": version,
             "feature_version": "player-match-feature-v1",
             "input_dtype": "float32",
-            "input_shape": ["batch_size", len(FEATURE_CONTRACT)],
-            "features": FEATURE_CONTRACT
+            "input_shape": ["batch_size", len(features_used)],
+            "features": features_used
         }
 
         # 3. Tạo threshold_policy.json (Quy định phân vùng rủi ro Risk Level)
@@ -101,17 +104,27 @@ class ONNXExporter:
             return False
 
     @staticmethod
-    def _convert_to_onnx(model: Any) -> bytes:
-        """Chuyển đổi mô hình scikit-learn sang ONNX bytes bằng skl2onnx"""
+    def _convert_to_onnx(model: Any, feature_cols: list = None) -> bytes:
+        """Chuyển đổi mô hình scikit-learn sang ONNX bytes bằng skl2onnx và validate bằng onnx.checker"""
+        if feature_cols is None:
+            feature_cols = FEATURE_CONTRACT
+
         try:
             from skl2onnx import convert_sklearn
             from skl2onnx.common.data_types import FloatTensorType
+            import onnx
 
-            initial_type = [("float_input", FloatTensorType([None, len(FEATURE_CONTRACT)]))]
+            initial_type = [("float_input", FloatTensorType([None, len(feature_cols)]))]
             onnx_model = convert_sklearn(model, initial_types=initial_type)
-            return onnx_model.SerializeToString()
+
+            # Validate ONNX model hợp lệ
+            onnx.checker.check_model(onnx_model)
+
+            onnx_bytes = onnx_model.SerializeToString()
+            print(f"[ONNX EXPORTER] Conversion & Validation ONNX model thành công! ({len(onnx_bytes)} bytes)")
+            return onnx_bytes
+
         except Exception as err:
-            print(f"[WARN] skl2onnx convert error ({err}), fallback binary buffer for dev environment")
-            # Fallback mock binary header nếu thiếu thư viện C-bindings skl2onnx
-            header = b"ONNX_MOCK_MODEL_V1_BINARY_STREAM_PUBG_ANTICHEAT"
-            return header + hashlib.sha256(b"mock_model").digest()
+            raise RuntimeError(
+                f"[FAIL-CLOSE] Chuyển đổi mô hình sang ONNX thất bại ({err})! Pipeline FAIL đỏ, không tạo mock model."
+            )
