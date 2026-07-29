@@ -36,11 +36,13 @@ func main() {
 		log.WithError(err).Fatal("Nạp cấu hình ứng dụng thất bại")
 	}
 
-	// 5. Khởi tạo ReplayService từ Flat Architecture
-	replayService, err := service.NewReplayService(cfg, log)
+	// 5. Khởi tạo MinIO Client và ReplayService
+	minioCli, err := service.NewMinIOClient(cfg.MinIOEndpoint, cfg.MinIOAccessKey, cfg.MinIOSecretKey, cfg.MinIOBucket, cfg.MinIOUseSSL)
 	if err != nil {
-		log.WithError(err).Fatal("Khởi tạo ứng dụng ReplayService thất bại")
+		log.WithError(err).Fatal("Khởi tạo MinIOClient thất bại")
 	}
+
+	replayService := service.NewReplayService(cfg, minioCli, log)
 
 	// 6. Cấu hình các tham số Replay, Stream Simulator Delay và Checkpoint
 	replayConfig := service.ReplayerConfig{
@@ -53,7 +55,7 @@ func main() {
 	}
 
 	// 7. Thực thi Use Case Replay Dataset
-	if _, err := replayService.Run(ctx, replayConfig); err != nil {
+	if _, err := replayService.RunReplay(ctx, replayConfig); err != nil {
 		if ctx.Err() != nil {
 			log.Info("🟢 Tiến trình replay đã dừng an toàn theo yêu cầu ngắt từ người dùng (Graceful Shutdown - Exit Code 0).")
 		} else {

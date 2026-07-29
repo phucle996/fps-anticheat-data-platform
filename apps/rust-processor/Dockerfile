@@ -6,8 +6,7 @@
 # ------------------------------------------
 FROM rust:1.87-slim-bookworm AS builder
 
-# Cài đặt gói hệ thống cần thiết (pkg-config, libssl-dev, cmake cho rdkafka C binding)
-# Layer này cache ổn định — chỉ thay đổi khi cập nhật base image
+# Cài đặt gói hệ thống cần thiết cho cargo build (pkg-config, libssl-dev, cmake cho rdkafka C binding)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     pkg-config \
     libssl-dev \
@@ -17,33 +16,25 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-# --- LAYER CACHE TỐI ƯU: Compile toàn bộ dependencies trước ---
-# Chỉ copy manifest files, chưa copy source code thật
+# Compile dependencies trước để cache layer
 COPY Cargo.toml Cargo.lock ./
 
-# Tạo dummy main.rs để cargo fetch & compile tất cả dependencies vào cache
-# Layer này chỉ rebuild khi Cargo.toml hoặc Cargo.lock thay đổi (thêm/xóa dependency)
 RUN mkdir src \
     && echo 'fn main() { println!("dummy"); }' > src/main.rs \
     && cargo build --release \
     && rm -rf src/main.rs
 
-# --- COPY SOURCE CODE THẬT ---
-# Layer này thay đổi mỗi khi src/ thay đổi, nhưng dependencies đã cache xong ở trên
-# Touch file binary để buộc cargo nhận ra binary cần rebuild (tránh incremental skip)
+# Copy source code thật và build release binary
 COPY src ./src
 RUN touch src/main.rs \
     && cargo build --release
 
 # ------------------------------------------
-# Stage 2: Runtime Stage (Debian Bookworm Slim — không có build tools)
-# ------------------------------------------
-# ------------------------------------------
-# Stage 2: Runtime Stage (Debian Bookworm với R 4.4 + OpenSSL)
+# Stage 2: Runtime Stage (Debian Bookworm với R 4.4 + Arrow + OpenSSL)
 # ------------------------------------------
 FROM debian:bookworm-slim AS runner
 
-# Cài đặt R runtime, OpenSSL, ca-certificates và R packages (r-cran-jsonlite, r-cran-arrow nếu có)
+# Cài đặt R runtime, OpenSSL, ca-certificates và các thư viện hệ thống cần cho R arrow package
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     libssl3 \
@@ -51,12 +42,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     r-cran-jsonlite \
     libcurl4-openssl-dev \
     libxml2-dev \
+    build-essential \
     && rm -rf /var/lib/apt/lists/*
+
+# Cài đặt R package arrow trực tiếp trong build stage của image để đảm bảo runtime có sẵn (Fail-Close)
+RUN Rscript -e 'install.packages("arrow", repos="https://cloud.r-project.org")' \
+    && Rscript -e 'stopifnot(requireNamespace("arrow", quietly=TRUE))' \
+    && Rscript -e 'stopifnot(requireNamespace("jsonlite", quietly=TRUE))'
 
 WORKDIR /app
 
-# Copy R processor subfolder từ repository sang /opt/r-processor
-COPY apps/rust-processor/r-processor /opt/r-processor
+# Copy R processor subfolder từ build context (r-processor) sang /opt/r-processor
+# Chú ý: build context trong compose là apps/rust-processor nên đường dẫn tương đối là r-processor
+COPY r-processor /opt/r-processor
 
 # Tạo non-root user bảo mật Cloud-Native (UID 10001 cố định)
 RUN useradd -m -u 10001 appuser \

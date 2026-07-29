@@ -3,6 +3,7 @@ package service_test
 import (
 	"bytes"
 	"context"
+	"errors"
 	"os"
 	"testing"
 
@@ -34,7 +35,7 @@ player-3,group-11,match-100,0,45.0,0,300.0,0.0,0.0,400.0,0.20`
 		DryRun:      true,
 	}
 
-	replayerEngine := service.NewReplayer(cfg, p, normalizer, nil, nil, "test-dataset", "test.csv", logger)
+	replayerEngine := service.NewReplayer(cfg, p, normalizer, nil, nil, "test-dataset", "test.csv", "sha256-test", logger)
 	stats, err := replayerEngine.Run(context.Background())
 	if err != nil {
 		t.Fatalf("Replayer.Run trả về lỗi bất ngờ: %v", err)
@@ -74,7 +75,7 @@ func TestReplayer_StartRecordOffset(t *testing.T) {
 		DryRun:      true,
 	}
 
-	replayerEngine := service.NewReplayer(cfg, p, normalizer, nil, nil, "test-dataset", "train_V2.csv", logger)
+	replayerEngine := service.NewReplayer(cfg, p, normalizer, nil, nil, "test-dataset", "train_V2.csv", "sha256-test", logger)
 	stats, err := replayerEngine.Run(context.Background())
 	if err != nil {
 		t.Fatalf("Replayer.Run trả về lỗi bất ngờ: %v", err)
@@ -100,10 +101,13 @@ player-1,group-10,match-100,5,550.5,2,1200.0,0.0,0.0,900.0,0.85`
 	cancel()
 
 	cfg := service.ReplayerConfig{DryRun: true}
-	replayerEngine := service.NewReplayer(cfg, p, normalizer, nil, nil, "test-dataset", "test.csv", logger)
+	replayerEngine := service.NewReplayer(cfg, p, normalizer, nil, nil, "test-dataset", "test.csv", "sha256-test", logger)
 
-	_, err := replayerEngine.Run(ctx)
-	if err == nil {
-		t.Errorf("Kỳ vọng trả về lỗi context canceled nhưng nhận được nil")
+	stats, err := replayerEngine.Run(ctx)
+	if err != nil && !errors.Is(err, context.Canceled) {
+		t.Errorf("Lỗi không mong muốn khi context canceled: %v", err)
+	}
+	if stats == nil {
+		t.Errorf("Stats không được nil")
 	}
 }

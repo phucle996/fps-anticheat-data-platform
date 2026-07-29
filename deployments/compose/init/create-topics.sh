@@ -79,6 +79,20 @@ kafka-topics --bootstrap-server "${KAFKA_BROKER}" \
 echo "  - Topic 'pubg.v1.dataset.gold.ready' (1 partition) tạo thành công."
 
 # ──────────────────────────────────────────────────────────────
+# 6. Topic: pubg.v1.dataset.bronze.ready
+# Dùng bởi: Rust Processor (produce) → R ETL Worker (consume)
+# Signal event-driven: 1 message = 1 Bronze Parquet batch đã sẵn sàng cho R ETL
+# ──────────────────────────────────────────────────────────────
+kafka-topics --bootstrap-server "${KAFKA_BROKER}" \
+  --create --if-not-exists \
+  --topic "pubg.v1.dataset.bronze.ready" \
+  --partitions 1 \
+  --replication-factor 1 \
+  --config retention.ms=86400000   # Lưu 24h
+
+echo "  - Topic 'pubg.v1.dataset.bronze.ready' (1 partition) tạo thành công."
+
+# ──────────────────────────────────────────────────────────────
 # 5. Topic: pubg.v1.ml.model.ready
 # Dùng bởi: Python ML Worker (produce) → Rust Inference (consume, reload model)
 # Signal event-driven: 1 message = 1 ONNX model version đã upload lên pubg-models bucket

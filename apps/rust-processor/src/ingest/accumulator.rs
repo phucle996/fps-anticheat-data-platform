@@ -1,5 +1,5 @@
 use super::consumer::ConsumedMessage;
-use crate::domain::EventEnvelope;
+use crate::domain::AnyEnvelope;
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 #[derive(Debug, Clone)]
 pub struct CompletedBatch {
     pub batch_id: String,                             // Mã băm SHA-256 duy nhất của batch
-    pub events: Vec<EventEnvelope>,                   // Danh sách các sự kiện EventEnvelope
+    pub events: Vec<AnyEnvelope>,                    // Danh sách các sự kiện AnyEnvelope
     pub partition_offsets: HashMap<i32, (i64, i64)>, // Bản đồ Partition -> (min_offset, max_offset)
     pub record_count: usize,                          // Số bản ghi trong batch
     pub estimated_bytes: usize,                       // Dung lượng byte ước tính
@@ -17,7 +17,7 @@ pub struct CompletedBatch {
 #[derive(Debug, Clone)]
 pub struct BatchAccumulatorConfig {
     pub max_records: usize,      // Ngưỡng số bản ghi tối đa (vd: 1000)
-    pub max_bytes: usize,        // Ngưỡng dung lượng byte tối đa (vd: 10MB = 10,485,760 bytes)
+    pub max_bytes: usize,        // Ngưỡng dung lượng byte tối đa (vd: 10MB)
     pub flush_interval: Duration, // Nhịp timer flush tối đa (vd: 1000ms)
 }
 
@@ -34,14 +34,14 @@ impl Default for BatchAccumulatorConfig {
 /// BatchAccumulator gom tụ các sự kiện Kafka trong bộ nhớ RAM trước khi đẩy sang Apache Arrow & Parquet
 pub struct BatchAccumulator {
     config: BatchAccumulatorConfig,
-    events: Vec<EventEnvelope>,
-    partition_offsets: HashMap<i32, (i64, i64)>, // Partition -> (min_offset, max_offset)
+    events: Vec<AnyEnvelope>,
+    partition_offsets: HashMap<i32, (i64, i64)>,
     current_bytes: usize,
     last_flush_time: Instant,
 }
 
 impl BatchAccumulator {
-    /// New khởi tạo BatchAccumulator với cấu hình quy định
+    /// New khởi tạo BatchAccumulator
     pub fn new(config: BatchAccumulatorConfig) -> Self {
         let max_recs = config.max_records;
         Self {
@@ -53,12 +53,11 @@ impl BatchAccumulator {
         }
     }
 
-    /// Push thêm 1 tin nhắn ConsumedMessage vào bộ đệm, tự động Trigger Flush nếu đạt ranh giới (Count hoặc Bytes)
+    /// Push thêm 1 tin nhắn ConsumedMessage vào bộ đệm
     pub fn push(&mut self, msg: ConsumedMessage) -> Option<CompletedBatch> {
         let partition = msg.partition;
         let offset = msg.offset;
 
-        // Cập nhật bản đồ theo dõi (min_offset, max_offset) chuẩn xác cho từng Partition
         self.partition_offsets
             .entry(partition)
             .and_modify(|(min, max)| {
@@ -71,21 +70,34 @@ impl BatchAccumulator {
             })
             .or_insert((offset, offset));
 
-        // Ước tính kích thước byte của tin nhắn
-        let bytes_len = msg.envelope.event_id.len()
-            + msg.envelope.match_id.len()
-            + msg.envelope.player_id.len()
+        let bytes_len = msg.envelope.event_id().len()
+            + msg.envelope.match_id().len()
+            + msg.envelope.player_id().len()
             + 250;
 
         self.events.push(msg.envelope);
         self.current_bytes += bytes_len;
 
-        // Kiểm tra xem đã đạt ngưỡng Record Count hoặc Max Bytes chưa
         if self.events.len() >= self.config.max_records || self.current_bytes >= self.config.max_bytes {
             self.flush()
         } else {
             None
         }
+    }
+
+    /// Track_partition_offset cập nhật offset cho batch ngay cả khi message là invalid DLQ
+    pub fn track_partition_offset(&mut self, partition: i32, offset: i64) {
+        self.partition_offsets
+            .entry(partition)
+            .and_modify(|(min, max)| {
+                if offset < *min {
+                    *min = offset;
+                }
+                if offset > *max {
+                    *max = offset;
+                }
+            })
+            .or_insert((offset, offset));
     }
 
     /// Should_flush_timer kiểm tra xem đã vượt quá khoảng thời gian flush_interval chưa
@@ -95,7 +107,7 @@ impl BatchAccumulator {
 
     /// Flush thực thi đóng gói CompletedBatch và reset trạng thái bộ đệm
     pub fn flush(&mut self) -> Option<CompletedBatch> {
-        if self.events.is_empty() {
+        if self.events.is_empty() && self.partition_offsets.is_empty() {
             return None;
         }
 
@@ -104,10 +116,8 @@ impl BatchAccumulator {
         let events = std::mem::replace(&mut self.events, Vec::with_capacity(self.config.max_records));
         let partition_offsets = std::mem::take(&mut self.partition_offsets);
 
-        // Sinh Batch ID định hạn duy nhất
         let batch_id = self.generate_batch_id(&partition_offsets);
 
-        // Reset thời điểm flush
         self.current_bytes = 0;
         self.last_flush_time = Instant::now();
 
@@ -120,7 +130,6 @@ impl BatchAccumulator {
         })
     }
 
-    /// Generate_batch_id sinh mã băm SHA-256 định danh cho Batch
     fn generate_batch_id(&self, offsets: &HashMap<i32, (i64, i64)>) -> String {
         use std::collections::BTreeMap;
         let sorted_map: BTreeMap<_, _> = offsets.iter().collect();
@@ -133,7 +142,6 @@ impl BatchAccumulator {
     }
 }
 
-/// Helper sha256_simple tính mã hash đơn giản
 fn sha256_simple(input: &str) -> u128 {
     let mut hash: u128 = 0xcbf29ce484222325;
     for byte in input.bytes() {

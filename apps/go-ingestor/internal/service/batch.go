@@ -26,7 +26,8 @@ type BatchFlusher struct {
 	rawBytes      int64                     // Dung lượng byte tích lũy của rawBuffer
 	invalidRecs   []*contract.InvalidRecord // Bộ đệm mảng sự kiện vi phạm
 	invalidBytes  int64                     // Dung lượng byte tích lũy của invalidBuffer
-	mu            sync.Mutex                // Mutex bảo vệ truy cập đồng thời
+	mu            sync.Mutex                // Mutex bảo vệ truy cập bộ đệm RAM
+	flushMu       sync.Mutex                // Mutex serialize các thao tác Flush (chống race condition giữa timer và batch boundary)
 	timerTicker   *time.Ticker              // Timer ticker nhịp flush định kỳ
 	stopTickerCh  chan struct{}             // Channel báo dừng ticker
 	stopOnce      sync.Once                 // Guard đảm bảo channel chỉ close 1 lần
@@ -209,6 +210,9 @@ func (b *BatchFlusher) FlushRaw(ctx context.Context) (int64, error) {
 
 // FlushInvalid thực thi phát InvalidRecords sang Kafka DLQ với Transactional Buffer
 func (b *BatchFlusher) FlushInvalid(ctx context.Context) (int64, error) {
+	b.flushMu.Lock()
+	defer b.flushMu.Unlock()
+
 	b.mu.Lock()
 	if len(b.invalidRecs) == 0 {
 		b.mu.Unlock()

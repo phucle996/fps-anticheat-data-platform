@@ -13,8 +13,10 @@ read_manifest <- function(manifest_path) {
   # Không hỗ trợ S3 URI trực tiếp — Fail-Close nếu file không tồn tại
   if (!file.exists(manifest_path)) {
     stop(sprintf(
-      "[ERROR] Manifest file không tồn tại tại local path: %s\n" \
-      "R worker chỉ đọc local files — kiểm tra Rust spawner đã download manifest từ MinIO.",
+      paste0(
+        "[ERROR] Manifest file không tồn tại tại local path: %s\n",
+        "R worker chỉ đọc local files — kiểm tra Rust spawner đã download manifest từ MinIO."
+      ),
       manifest_path
     ))
   }

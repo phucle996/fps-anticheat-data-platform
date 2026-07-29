@@ -1,15 +1,15 @@
-use crate::domain::EventEnvelope;
+use crate::domain::AnyEnvelope;
 use crate::error::{AppError, Result};
 use arrow::array::{Float64Array, Int64Array, StringArray};
 use arrow::datatypes::{DataType, Field, Schema, SchemaRef};
 use arrow::record_batch::RecordBatch;
 use std::sync::Arc;
 
-/// ArrowConverter quản lý khởi tạo Arrow Schema và chuyển đổi EventEnvelope/KillEventEnvelope sang Apache Arrow RecordBatch
+/// ArrowConverter quản lý khởi tạo Arrow Schema và chuyển đổi AnyEnvelope sang Apache Arrow RecordBatch
 pub struct ArrowConverter;
 
 impl ArrowConverter {
-    /// Build_schema tạo định nghĩa Arrow Schema 19 cột chuẩn hóa với đầy đủ thông tin telemetry
+    /// Build_schema tạo định nghĩa Arrow Schema với đầy đủ trường kill telemetry từ match_deaths
     pub fn build_schema() -> SchemaRef {
         Arc::new(Schema::new(vec![
             Field::new("event_id", DataType::Utf8, false),
@@ -23,19 +23,21 @@ impl ArrowConverter {
             Field::new("source_dataset_id", DataType::Utf8, false),
             Field::new("source_file", DataType::Utf8, false),
             Field::new("source_record_index", DataType::Int64, false),
-            Field::new("kills", DataType::Int64, false),
-            Field::new("damage_dealt", DataType::Float64, false),
-            Field::new("headshot_kills", DataType::Int64, false),
-            Field::new("walk_distance", DataType::Float64, false),
-            Field::new("ride_distance", DataType::Float64, false),
-            Field::new("swim_distance", DataType::Float64, false),
-            Field::new("survival_duration", DataType::Float64, false),
-            Field::new("win_place_perc", DataType::Float64, true),
+            Field::new("killer_name", DataType::Utf8, true),
+            Field::new("victim_name", DataType::Utf8, true),
+            Field::new("killer_placement", DataType::Int64, true),
+            Field::new("victim_placement", DataType::Int64, true),
+            Field::new("killer_position_x", DataType::Float64, true),
+            Field::new("killer_position_y", DataType::Float64, true),
+            Field::new("victim_position_x", DataType::Float64, true),
+            Field::new("victim_position_y", DataType::Float64, true),
+            Field::new("event_time_seconds", DataType::Float64, true),
+            Field::new("weapon", DataType::Utf8, true),
         ]))
     }
 
-    /// Events_to_record_batch ánh xạ danh sách EventEnvelope thành Apache Arrow RecordBatch dạng cột
-    pub fn events_to_record_batch(events: &[EventEnvelope]) -> Result<RecordBatch> {
+    /// Events_to_record_batch ánh xạ mảng AnyEnvelope thành Apache Arrow RecordBatch dạng cột
+    pub fn events_to_record_batch(events: &[AnyEnvelope]) -> Result<RecordBatch> {
         let schema = Self::build_schema();
         let len = events.len();
 
@@ -51,36 +53,68 @@ impl ArrowConverter {
         let mut src_file_vec = Vec::with_capacity(len);
         let mut src_rec_idx_vec = Vec::with_capacity(len);
 
-        let mut kills_vec = Vec::with_capacity(len);
-        let mut damage_vec = Vec::with_capacity(len);
-        let mut headshot_vec = Vec::with_capacity(len);
-        let mut walk_vec = Vec::with_capacity(len);
-        let mut ride_vec = Vec::with_capacity(len);
-        let mut swim_vec = Vec::with_capacity(len);
-        let mut survival_vec = Vec::with_capacity(len);
-        let mut win_place_vec = Vec::with_capacity(len);
+        let mut killer_name_vec = Vec::with_capacity(len);
+        let mut victim_name_vec = Vec::with_capacity(len);
+        let mut killer_place_vec = Vec::with_capacity(len);
+        let mut victim_place_vec = Vec::with_capacity(len);
+        let mut killer_x_vec = Vec::with_capacity(len);
+        let mut killer_y_vec = Vec::with_capacity(len);
+        let mut victim_x_vec = Vec::with_capacity(len);
+        let mut victim_y_vec = Vec::with_capacity(len);
+        let mut event_time_sec_vec = Vec::with_capacity(len);
+        let mut weapon_vec = Vec::with_capacity(len);
 
         for e in events {
-            event_id_vec.push(e.event_id.as_str());
-            schema_ver_vec.push(e.schema_version.as_str());
-            op_vec.push(e.op.as_str());
-            event_time_vec.push(e.event_time.as_deref());
-            ingest_time_vec.push(e.ingest_time.as_str());
-            match_id_vec.push(e.match_id.as_str());
-            player_id_vec.push(e.player_id.as_str());
-            src_provider_vec.push(e.source.provider.as_str());
-            src_dataset_id_vec.push(e.source.dataset_id.as_str());
-            src_file_vec.push(e.source.source_file.as_str());
-            src_rec_idx_vec.push(e.source.record_index);
+            match e {
+                AnyEnvelope::Kill(k) => {
+                    event_id_vec.push(k.event_id.as_str());
+                    schema_ver_vec.push(k.schema_version.as_str());
+                    op_vec.push(k.op.as_str());
+                    event_time_vec.push(k.event_time.as_deref());
+                    ingest_time_vec.push(k.ingest_time.as_str());
+                    match_id_vec.push(k.match_id.as_str());
+                    player_id_vec.push(k.player_id.as_str());
+                    src_provider_vec.push(k.source.provider.as_str());
+                    src_dataset_id_vec.push(k.source.dataset_id.as_str());
+                    src_file_vec.push(k.source.source_file.as_str());
+                    src_rec_idx_vec.push(k.source.record_index);
 
-            kills_vec.push(e.payload.kills);
-            damage_vec.push(e.payload.damage_dealt);
-            headshot_vec.push(e.payload.headshot_kills);
-            walk_vec.push(e.payload.walk_distance);
-            ride_vec.push(e.payload.ride_distance);
-            swim_vec.push(e.payload.swim_distance);
-            survival_vec.push(e.payload.survival_duration);
-            win_place_vec.push(e.payload.win_place_perc);
+                    killer_name_vec.push(k.payload.killer_name.as_deref());
+                    victim_name_vec.push(k.payload.victim_name.as_deref());
+                    killer_place_vec.push(k.payload.killer_placement.map(|v| v as i64));
+                    victim_place_vec.push(k.payload.victim_placement.map(|v| v as i64));
+                    killer_x_vec.push(k.payload.killer_position_x);
+                    killer_y_vec.push(k.payload.killer_position_y);
+                    victim_x_vec.push(k.payload.victim_position_x);
+                    victim_y_vec.push(k.payload.victim_position_y);
+                    event_time_sec_vec.push(k.payload.event_time_seconds);
+                    weapon_vec.push(k.payload.weapon.as_deref());
+                }
+                AnyEnvelope::PlayerStat(p) => {
+                    event_id_vec.push(p.event_id.as_str());
+                    schema_ver_vec.push(p.schema_version.as_str());
+                    op_vec.push(p.op.as_str());
+                    event_time_vec.push(p.event_time.as_deref());
+                    ingest_time_vec.push(p.ingest_time.as_str());
+                    match_id_vec.push(p.match_id.as_str());
+                    player_id_vec.push(p.player_id.as_str());
+                    src_provider_vec.push(p.source.provider.as_str());
+                    src_dataset_id_vec.push(p.source.dataset_id.as_str());
+                    src_file_vec.push(p.source.source_file.as_str());
+                    src_rec_idx_vec.push(p.source.record_index);
+
+                    killer_name_vec.push(Some(p.player_id.as_str()));
+                    victim_name_vec.push(None);
+                    killer_place_vec.push(None);
+                    victim_place_vec.push(None);
+                    killer_x_vec.push(None);
+                    killer_y_vec.push(None);
+                    victim_x_vec.push(None);
+                    victim_y_vec.push(None);
+                    event_time_sec_vec.push(Some(p.payload.survival_duration));
+                    weapon_vec.push(None);
+                }
+            }
         }
 
         let arr_event_id = StringArray::from(event_id_vec);
@@ -95,14 +129,16 @@ impl ArrowConverter {
         let arr_src_file = StringArray::from(src_file_vec);
         let arr_src_rec_idx = Int64Array::from(src_rec_idx_vec);
 
-        let arr_kills = Int64Array::from(kills_vec);
-        let arr_damage = Float64Array::from(damage_vec);
-        let arr_headshot = Int64Array::from(headshot_vec);
-        let arr_walk = Float64Array::from(walk_vec);
-        let arr_ride = Float64Array::from(ride_vec);
-        let arr_swim = Float64Array::from(swim_vec);
-        let arr_survival = Float64Array::from(survival_vec);
-        let arr_win_place = Float64Array::from(win_place_vec);
+        let arr_killer_name = StringArray::from(killer_name_vec);
+        let arr_victim_name = StringArray::from(victim_name_vec);
+        let arr_killer_place = Int64Array::from(killer_place_vec);
+        let arr_victim_place = Int64Array::from(victim_place_vec);
+        let arr_killer_x = Float64Array::from(killer_x_vec);
+        let arr_killer_y = Float64Array::from(killer_y_vec);
+        let arr_victim_x = Float64Array::from(victim_x_vec);
+        let arr_victim_y = Float64Array::from(victim_y_vec);
+        let arr_event_time_sec = Float64Array::from(event_time_sec_vec);
+        let arr_weapon = StringArray::from(weapon_vec);
 
         RecordBatch::try_new(
             schema,
@@ -118,14 +154,16 @@ impl ArrowConverter {
                 Arc::new(arr_src_dataset_id),
                 Arc::new(arr_src_file),
                 Arc::new(arr_src_rec_idx),
-                Arc::new(arr_kills),
-                Arc::new(arr_damage),
-                Arc::new(arr_headshot),
-                Arc::new(arr_walk),
-                Arc::new(arr_ride),
-                Arc::new(arr_swim),
-                Arc::new(arr_survival),
-                Arc::new(arr_win_place),
+                Arc::new(arr_killer_name),
+                Arc::new(arr_victim_name),
+                Arc::new(arr_killer_place),
+                Arc::new(arr_victim_place),
+                Arc::new(arr_killer_x),
+                Arc::new(arr_killer_y),
+                Arc::new(arr_victim_x),
+                Arc::new(arr_victim_y),
+                Arc::new(arr_event_time_sec),
+                Arc::new(arr_weapon),
             ],
         )
         .map_err(|e| AppError::Arrow(format!("Khởi tạo Arrow RecordBatch thất bại: {}", e)))

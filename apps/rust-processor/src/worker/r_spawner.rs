@@ -121,20 +121,23 @@ impl RWorkerSpawner {
                 "Download hoàn tất — Khởi chạy Rscript Subprocess..."
             );
 
+            // Tự động kiểm tra đường dẫn runtime container (/opt/r-processor) hoặc local dev
+            let (r_work_dir, r_script_path) = if std::path::Path::new("/opt/r-processor/scripts/run_batch.R").exists() {
+                ("/opt/r-processor", "/opt/r-processor/scripts/run_batch.R")
+            } else {
+                ("apps/rust-processor/r-processor", "apps/rust-processor/r-processor/scripts/run_batch.R")
+            };
+
             // Bước 5: Khởi chạy Rscript Subprocess với local paths
-            // --manifest = đường dẫn LOCAL file manifest (đã download)
-            // --bronze   = đường dẫn LOCAL file Bronze Parquet (đã download)
-            // --output   = thư mục temp để R ghi Silver/Gold output
-            // Working directory đặt tại r-processor để source() đúng relative paths
             let output = Command::new("Rscript")
-                .arg(&script)
+                .arg(r_script_path)
                 .arg("--manifest")
                 .arg(&local_manifest_path)
                 .arg("--bronze")
                 .arg(&local_bronze_path)
                 .arg("--output-dir")
                 .arg(temp_path)
-                .current_dir("apps/rust-processor/r-processor")
+                .current_dir(r_work_dir)
                 .output()
                 .await;
 
@@ -276,18 +279,18 @@ impl RWorkerSpawner {
         }
 
         if upload_count == 0 {
-            warn!(
-                manifest_key = %manifest_key,
-                "R Subprocess không tạo ra bất kỳ Silver/Gold file nào để upload — kiểm tra Rscript log"
-            );
-        } else {
-            info!(
-                upload_count = upload_count,
-                manifest_key = %manifest_key,
-                "Đã upload tổng {} file Silver/Gold từ R output lên MinIO thành công",
-                upload_count
-            );
+            return Err(AppError::Storage(format!(
+                "R Subprocess báo thành công nhưng không tạo ra bất kỳ Silver/Gold file nào để upload cho manifest '{}' (Fail-Close)",
+                manifest_key
+            )));
         }
+
+        info!(
+            upload_count = upload_count,
+            manifest_key = %manifest_key,
+            "Đã upload tổng {} file Silver/Gold từ R output lên MinIO thành công",
+            upload_count
+        );
 
         Ok(())
     }

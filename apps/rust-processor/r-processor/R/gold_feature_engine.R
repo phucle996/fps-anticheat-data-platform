@@ -1,12 +1,11 @@
 # R Gold Feature Engine Module - Trích xuất ma trận đặc trưng ML Anti-Cheat
 # ==============================================================================
-# Trích xuất 5 đặc trưng thật từ kill telemetry & player-match:
+# Trích xuất 5 đặc trưng chuẩn telemetry & player-match:
 #   1. kills                                  : Tổng số mạng tiêu diệt trong trận
 #   2. minimum_kill_interval_seconds          : Thời gian ngắn nhất giữa 2 kill liên tiếp (s)
 #   3. median_kill_distance_coordinate_units : Khoảng cách Euclidean trung vị tới nạn nhân
-#   4. kills_within_10_seconds                : Số cú kill dồn dập trong khoảng thời gian <= 10s
+#   4. short_kill_interval_count              : Số khoảng thời gian kill <= 10s (burst kills)
 #   5. unique_weapons_used                    : Số loại vũ khí đã dùng
-# KHÔNG tự tạo công thức proxy giả (vd: walk_distance * 0.4 + kills * 15)
 
 suppressPackageStartupMessages({
   if (!requireNamespace("jsonlite", quietly = TRUE)) {
@@ -24,14 +23,12 @@ generate_gold_features <- function(manifest_path, output_dir) {
   manifest <- read_manifest(manifest_path)
   batch_id <- manifest$batch_id
 
-  # Đọc Silver kill_events và player_match từ output_dir
   silver_ke_path <- file.path(output_dir, "silver", "kill-events",  sprintf("kill_events_%s.parquet", batch_id))
   silver_pm_path <- file.path(output_dir, "silver", "player-match", sprintf("player_match_%s.parquet", batch_id))
 
   cat(sprintf("[INFO] Đọc Silver kill_events từ: %s\n", silver_ke_path))
   cat(sprintf("[INFO] Đọc Silver player_match từ: %s\n", silver_pm_path))
 
-  # Fail-Close check
   if (!file.exists(silver_ke_path) && !file.exists(paste0(silver_ke_path, ".csv"))) {
     stop(sprintf("[FAIL-CLOSE] Silver kill-events file không tồn tại tại: %s", silver_ke_path))
   }
@@ -41,13 +38,12 @@ generate_gold_features <- function(manifest_path, output_dir) {
 
   cat(sprintf("[INFO] Đọc Silver: %d kill events, %d player-match records\n", nrow(df_ke), nrow(df_pm)))
 
-  # Nếu không có data -> trả về Gold empty dataframe
   if (nrow(df_pm) == 0) {
     gold_df <- data.frame(
       match_id = character(), player_id = character(), kills = integer(),
       minimum_kill_interval_seconds = numeric(),
       median_kill_distance_coordinate_units = numeric(),
-      kills_within_10_seconds = integer(),
+      short_kill_interval_count = integer(),
       unique_weapons_used = integer(),
       feature_version = character(), created_at = character(),
       stringsAsFactors = FALSE
@@ -55,7 +51,7 @@ generate_gold_features <- function(manifest_path, output_dir) {
     return(gold_df)
   }
 
-  # 1. Tính toán Euclidean distance cho từng kill event có đủ tọa độ killer & victim
+  # 1. Euclidean distance
   df_ke$kill_distance_coords <- ifelse(
     !is.na(df_ke$killer_position_x) & !is.na(df_ke$victim_position_x) &
     !is.na(df_ke$killer_position_y) & !is.na(df_ke$victim_position_y),
@@ -64,26 +60,22 @@ generate_gold_features <- function(manifest_path, output_dir) {
     NA_real_
   )
 
-  # 2. Tính toán kill intervals (thời gian giữa 2 cú kill liên tiếp của cùng 1 killer)
+  # 2. Kill intervals
   valid_ke <- df_ke[!is.na(df_ke$killer_name) & df_ke$killer_name != "", ]
 
-  # Sắp xếp theo match_id, killer_name, event_time_seconds
   if (nrow(valid_ke) > 0 && "event_time_seconds" %in% colnames(valid_ke)) {
     valid_ke <- valid_ke[order(valid_ke$match_id, valid_ke$killer_name, valid_ke$event_time_seconds), ]
   }
 
-  # Aggregate median kill distance per player-match
   dist_agg <- aggregate(kill_distance_coords ~ match_id + killer_name, data = valid_ke,
                         FUN = function(d) {
                           valid_d <- d[!is.na(d)]
-                          if (length(valid_d) == 0) 0.0 else median(valid_d)
+                          if (length(valid_d) == 0) NA_real_ else median(valid_d)
                         })
   colnames(dist_agg) <- c("match_id", "player_id", "median_kill_distance_coordinate_units")
 
-  # Aggregate min kill interval & burst kills <= 10s per player-match
   interval_list <- list()
   if (nrow(valid_ke) > 0 && "event_time_seconds" %in% colnames(valid_ke)) {
-    # Group by match_id + killer_name để tính lag interval
     keys <- paste(valid_ke$match_id, valid_ke$killer_name, sep = "::")
     unique_keys <- unique(keys)
 
@@ -91,26 +83,24 @@ generate_gold_features <- function(manifest_path, output_dir) {
       sub <- valid_ke[keys == k, ]
       times <- sub$event_time_seconds[!is.na(sub$event_time_seconds)]
 
-      min_interval <- 9999.0
-      burst_count  <- 0
+      min_interval <- NA_real_
+      burst_count  <- 0L
 
       if (length(times) > 1) {
         diffs <- diff(times)
         diffs <- diffs[diffs >= 0]
         if (length(diffs) > 0) {
           min_interval <- min(diffs)
-          burst_count  <- sum(diffs <= 10.0)
+          burst_count  <- as.integer(sum(diffs <= 10.0))
         }
       }
-
-      if (min_interval == 9999.0) min_interval <- 0.0
 
       parts <- strsplit(k, "::")[[1]]
       interval_list[[length(interval_list) + 1]] <- data.frame(
         match_id                      = parts[1],
         player_id                     = parts[2],
         minimum_kill_interval_seconds = min_interval,
-        kills_within_10_seconds       = burst_count,
+        short_kill_interval_count     = burst_count,
         stringsAsFactors              = FALSE
       )
     }
@@ -118,29 +108,27 @@ generate_gold_features <- function(manifest_path, output_dir) {
 
   interval_df <- if (length(interval_list) > 0) do.call(rbind, interval_list) else data.frame(
     match_id = character(), player_id = character(),
-    minimum_kill_interval_seconds = numeric(), kills_within_10_seconds = integer(),
+    minimum_kill_interval_seconds = numeric(), short_kill_interval_count = integer(),
     stringsAsFactors = FALSE
   )
 
-  # Merge features vào df_pm
   gold_df <- merge(df_pm, dist_agg,    by = c("match_id", "player_id"), all.x = TRUE)
   gold_df <- merge(gold_df, interval_df, by = c("match_id", "player_id"), all.x = TRUE)
 
-  # Fill NAs
-  gold_df$minimum_kill_interval_seconds[is.na(gold_df$minimum_kill_interval_seconds)]                   <- 0.0
+  # Fill default numerical values cho features mà không bị bias
+  gold_df$minimum_kill_interval_seconds[is.na(gold_df$minimum_kill_interval_seconds)]                   <- 999.0
   gold_df$median_kill_distance_coordinate_units[is.na(gold_df$median_kill_distance_coordinate_units)] <- 0.0
-  gold_df$kills_within_10_seconds[is.na(gold_df$kills_within_10_seconds)]                               <- 0L
+  gold_df$short_kill_interval_count[is.na(gold_df$short_kill_interval_count)]                         <- 0L
   gold_df$unique_weapons_used[is.na(gold_df$unique_weapons_used)]                                       <- 0L
 
-  gold_df$feature_version <- "v1.0"
+  gold_df$feature_version <- "kill-event-player-match-v1"
   gold_df$created_at      <- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
 
-  # Select 5 feature contract cols
   gold_final <- gold_df[, c(
     "match_id", "player_id", "kills",
     "minimum_kill_interval_seconds",
     "median_kill_distance_coordinate_units",
-    "kills_within_10_seconds",
+    "short_kill_interval_count",
     "unique_weapons_used",
     "feature_version", "created_at"
   )]
