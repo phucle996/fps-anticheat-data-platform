@@ -6,16 +6,17 @@ use crate::transform::{ArrowConverter, EventDeduplicator, EventValidator, Parque
 use crate::worker::RDynamicWorkerPool;
 use chrono::Utc;
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::time::Duration;
 use tracing::{error, info, warn};
 
 /// StreamProcessorApp đóng gói toàn bộ quy trình Ingest -> Validate -> Dedup -> Arrow -> Parquet -> MinIO -> Offset Commit -> Dynamic R Pool
 pub struct StreamProcessorApp {
-    config: Config,                // Cấu hình ứng dụng
-    consumer: KafkaConsumer,       // Bộ đọc tin nhắn Kafka
-    accumulator: BatchAccumulator, // Bộ gom batch dữ liệu RAM
-    writer: MinioWriter,           // Bộ ghi dữ liệu MinIO S3
-    r_pool: RDynamicWorkerPool,    // Dynamic R Worker Pool Daemon
+    config: Config,                    // Cấu hình ứng dụng
+    consumer: KafkaConsumer,           // Bộ đọc tin nhắn Kafka
+    accumulator: BatchAccumulator,     // Bộ gom batch dữ liệu RAM
+    writer: Arc<MinioWriter>,          // Bộ ghi dữ liệu MinIO S3 (Arc vì chia sẻ với RDynamicWorkerPool)
+    r_pool: RDynamicWorkerPool,        // Dynamic R Worker Pool Daemon
 }
 
 impl StreamProcessorApp {
@@ -26,7 +27,10 @@ impl StreamProcessorApp {
         let consumer = KafkaConsumer::new(&config)?;
 
         let writer = MinioWriter::new(&config)?;
-        let r_pool = RDynamicWorkerPool::new(config.r_max_workers);
+        // Bọc writer trong Arc để chia sẻ giữa StreamProcessorApp và RDynamicWorkerPool
+        // RDynamicWorkerPool cần writer để download manifest/Parquet từ MinIO trước khi gọi Rscript
+        let writer = Arc::new(writer);
+        let r_pool = RDynamicWorkerPool::new(config.r_max_workers, writer.clone());
 
         let accum_config = BatchAccumulatorConfig {
             max_records: config.batch_size,

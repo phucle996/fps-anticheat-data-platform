@@ -38,3 +38,6 @@ tracing-subscriber = { version = "0.3", features = ["json", "env-filter"] }
 # Quản lý lỗi định dạng chuẩn hóa
 thiserror = "1.0"
 anyhow = "1.0"
+
+# Temp file/directory management cho R Worker isolated workspace (RAII cleanup)
+tempfile = "3.10"

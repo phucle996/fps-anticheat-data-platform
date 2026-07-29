@@ -210,6 +210,116 @@ impl MinioWriter {
         Ok(())
     }
 
+    /// Download_object_bytes tải nội dung object từ MinIO về dưới dạng bytes thuần (in-memory)
+    /// Dùng nội bộ — caller có thể ghi ra file hoặc parse trực tiếp
+    pub async fn download_object_bytes(&self, object_key: &str) -> Result<Vec<u8>> {
+        let object_path = ObjectPath::from(object_key);
+
+        let result = self
+            .store
+            .get(&object_path)
+            .await
+            .map_err(|e| AppError::Storage(format!(
+                "Download object '{}' từ MinIO thất bại: {}",
+                object_key, e
+            )))?;
+
+        let bytes = result
+            .bytes()
+            .await
+            .map_err(|e| AppError::Storage(format!(
+                "Đọc bytes object '{}' từ stream thất bại: {}",
+                object_key, e
+            )))?;
+
+        info!(
+            bucket = %self.bucket,
+            key = %object_key,
+            size_bytes = bytes.len(),
+            "Đã download thành công object từ MinIO S3"
+        );
+
+        Ok(bytes.to_vec())
+    }
+
+    /// Download_to_temp tải object từ MinIO xuống một file local tạm trong thư mục temp_dir
+    /// Trả về đường dẫn file local để truyền cho R subprocess (Rscript chỉ đọc local)
+    /// Caller có trách nhiệm xóa file sau khi R xử lý xong (cleanup)
+    pub async fn download_to_temp(&self, object_key: &str, temp_dir: &std::path::Path) -> Result<std::path::PathBuf> {
+        use std::io::Write;
+
+        // Tải bytes từ MinIO
+        let bytes = self.download_object_bytes(object_key).await?;
+
+        // Tạo tên file local dựa trên phần cuối của object_key (giữ extension gốc)
+        // vd: "manifests/year=2026/.../manifest_abc.json" → "manifest_abc.json"
+        let file_name = object_key
+            .split('/')
+            .last()
+            .unwrap_or("downloaded_object");
+
+        let local_path = temp_dir.join(file_name);
+
+        // Ghi bytes xuống file local — dùng BufWriter để tránh nhiều syscall nhỏ
+        let file = std::fs::File::create(&local_path).map_err(|e| {
+            AppError::Storage(format!(
+                "Không thể tạo temp file '{}': {}",
+                local_path.display(),
+                e
+            ))
+        })?;
+        let mut writer = std::io::BufWriter::new(file);
+        writer.write_all(&bytes).map_err(|e| {
+            AppError::Storage(format!(
+                "Không thể ghi bytes vào temp file '{}': {}",
+                local_path.display(),
+                e
+            ))
+        })?;
+
+        info!(
+            object_key = %object_key,
+            local_path = %local_path.display(),
+            "Đã download MinIO object xuống local temp file thành công"
+        );
+
+        Ok(local_path)
+    }
+
+    /// Upload_file_to_minio upload file local lên MinIO S3 với object_key chỉ định
+    /// Dùng để Rust upload Silver/Gold Parquet mà R đã tạo ra trong temp dir
+    pub async fn upload_file(&self, local_path: &std::path::Path, object_key: &str) -> Result<String> {
+        let bytes = std::fs::read(local_path).map_err(|e| {
+            AppError::Storage(format!(
+                "Không thể đọc file local '{}' để upload: {}",
+                local_path.display(),
+                e
+            ))
+        })?;
+
+        let checksum = Self::compute_sha256(&bytes);
+        let object_path = ObjectPath::from(object_key);
+
+        self.store
+            .put(&object_path, bytes.into())
+            .await
+            .map_err(|e| AppError::Storage(format!(
+                "Upload file '{}' lên MinIO key '{}' thất bại: {}",
+                local_path.display(),
+                object_key,
+                e
+            )))?;
+
+        info!(
+            local_path = %local_path.display(),
+            object_key = %object_key,
+            checksum = %checksum,
+            "Đã upload local file lên MinIO S3 thành công"
+        );
+
+        Ok(checksum)
+    }
+
     /// Helper parse_date_or_now giải mã năm, tháng, ngày từ chuỗi RFC3339
     fn parse_date_or_now(time_str: &str) -> (i32, u32, u32) {
         if let Ok(dt) = DateTime::parse_from_rfc3339(time_str) {

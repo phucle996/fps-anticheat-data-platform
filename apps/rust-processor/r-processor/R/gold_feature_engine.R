@@ -1,5 +1,11 @@
 # R Gold Feature Engine Module - Trích xuất ma trận đặc trưng ML Anti-Cheat
 # ==============================================================================
+# Nhận local paths từ run_batch.R:
+#   manifest_path : local path tới manifest JSON
+#   output_dir    : local temp dir chứa Silver output (từ silver_preprocessor)
+#                   và nơi ghi Gold output (Rust upload sau)
+# KHÔNG đọc/ghi MinIO trực tiếp
+# KHÔNG fallback mock data — Fail-Close nếu Silver Player-Match không tồn tại
 
 suppressPackageStartupMessages({
   if (!requireNamespace("jsonlite", quietly = TRUE)) {
@@ -11,114 +17,137 @@ suppressPackageStartupMessages({
 source("R/manifest_reader.R")
 source("R/storage.R")
 
-generate_gold_features <- function(manifest_path) {
-  cat(sprintf("[INFO] Bắt đầu tiến trình Gold Feature Engine cho Manifest: %s\n", manifest_path))
-  
-  # 1. Đọc và giải mã Manifest JSON
+generate_gold_features <- function(manifest_path, output_dir) {
+  cat(sprintf("[INFO] Gold Feature Engine bắt đầu. Output dir: %s\n", output_dir))
+
+  # 1. Đọc Manifest JSON để lấy batch_id
   manifest <- read_manifest(manifest_path)
   batch_id <- manifest$batch_id
-  
-  # 2. Đọc dữ liệu Silver Player-Match Parquet
-  silver_file <- file.path("silver", "player-match", sprintf("player_match_%s.parquet", batch_id))
-  
-  df_silver <- tryCatch({
-    read_bronze_parquet(silver_file)
-  }, error = function(e) {
-    cat(sprintf("[WARN] Không đọc được Silver Parquet tại %s, sử dụng DataFrame thử nghiệm: %s\n", silver_file, e$message))
-    data.frame(
-      match_id = c("match_100", "match_100", "match_101"),
-      player_id = c("player_A", "player_B", "player_C"),
-      kills = c(10, 0, 4),
-      damage_dealt = c(1200.0, 50.0, 400.0),
-      headshot_kills = c(8, 0, 1),
-      walk_distance = c(1500.0, 200.0, 800.0),
-      ride_distance = c(2000.0, 0.0, 0.0),
-      swim_distance = c(100.0, 0.0, 0.0),
-      survival_duration = c(1200.0, 150.0, 600.0),
-      win_place_perc = c(1.0, 0.1, 0.5),
-      ingest_time = c("2026-07-28T04:40:00Z", "2026-07-28T04:40:00Z", "2026-07-28T04:40:00Z"),
-      stringsAsFactors = FALSE
-    )
-  })
-  
-  # 3. Tính toán 7 chỉ số đặc trưng ML Anti-Cheat cốt lõi
-  cat("[INFO] Tính toán các chỉ số đặc trưng ML Feature Matrix...\n")
-  
-  # a. Total Distance: Tổng khoảng cách di chuyển
-  df_silver$total_distance <- df_silver$walk_distance + df_silver$ride_distance + df_silver$swim_distance
-  
-  # b. Headshot Ratio: Tỷ lệ headshot (Chia an toàn max(kills, 1))
-  df_silver$headshot_ratio <- ifelse(df_silver$kills > 0, df_silver$headshot_kills / df_silver$kills, 0.0)
-  
-  # c. Survival Duration in Minutes (Tối thiểu 0.1 phút chống chia cho 0)
-  survival_minutes <- pmax(df_silver$survival_duration / 60.0, 0.1)
-  
-  # d. Kills per Minute
-  df_silver$kills_per_minute <- df_silver$kills / survival_minutes
-  
-  # e. Damage per Minute
-  df_silver$damage_per_minute <- df_silver$damage_dealt / survival_minutes
-  
-  # f. Damage per Kill
-  df_silver$damage_per_kill <- ifelse(df_silver$kills > 0, df_silver$damage_dealt / df_silver$kills, df_silver$damage_dealt)
-  
-  # g. Movement per Minute
-  df_silver$movement_per_minute <- df_silver$total_distance / survival_minutes
-  
-  # h. Performance Versus Lobby (Chênh lệch sát thương so với trung bình Lobby trận đấu)
-  lobby_avg_damage <- aggregate(damage_dealt ~ match_id, data = df_silver, FUN = mean)
-  colnames(lobby_avg_damage)[2] <- "avg_lobby_damage"
-  
-  df_silver <- merge(df_silver, lobby_avg_damage, by = "match_id", all.x = TRUE)
-  df_silver$performance_versus_lobby <- df_silver$damage_dealt - df_silver$avg_lobby_damage
-  
-  # i. Rich Evidence Anti-Cheat Features (Khoảng cách hạ gục max & Chuỗi Headshot)
-  df_silver$max_kill_distance_m <- df_silver$walk_distance * 0.4 + df_silver$kills * 15.0
-  df_silver$avg_burst_kill_interval_ms <- ifelse(df_silver$kills > 1, 15000.0 / df_silver$kills, 0.0)
-  df_silver$spatial_teleport_score <- ifelse(df_silver$walk_distance < 10.0 & df_silver$kills > 5, 0.95, 0.05)
-  df_silver$headshot_streak_count <- pmin(df_silver$headshot_kills, df_silver$kills)
 
-  # 4. Bảo vệ an toàn toán học (NA / Inf / NaN Imputation)
-  cat("[INFO] Khử các giá trị bất thường NA / Inf / NaN trong Feature Matrix...\n")
-  feature_cols <- c(
-    "total_distance", "headshot_ratio", "kills_per_minute",
-    "damage_per_minute", "damage_per_kill", "movement_per_minute",
-    "performance_versus_lobby", "max_kill_distance_m", "avg_burst_kill_interval_ms",
-    "spatial_teleport_score", "headshot_streak_count"
-  )
-  
-  for (col in feature_cols) {
-    df_silver[[col]][is.na(df_silver[[col]])] <- 0.0
-    df_silver[[col]][is.infinite(df_silver[[col]])] <- 0.0
-    df_silver[[col]][is.nan(df_silver[[col]])] <- 0.0
+  # 2. Đọc Silver Player-Match Parquet từ output_dir (đã được silver_preprocessor tạo ra)
+  # Đây là dữ liệu ĐÃ AGGREGATE: mỗi dòng = 1 player trong 1 trận, kills = tổng kills
+  silver_pm_path <- file.path(output_dir, "silver", "player-match",
+                               sprintf("player_match_%s.parquet", batch_id))
+
+  cat(sprintf("[INFO] Đọc Silver Player-Match từ: %s\n", silver_pm_path))
+
+  # Fail-Close: nếu Silver không tồn tại → Gold không thể tạo được → dừng với lỗi rõ ràng
+  if (!file.exists(silver_pm_path)) {
+    # Fallback thử CSV (nếu arrow không có sẵn khi chạy silver_preprocessor)
+    silver_pm_csv <- paste0(silver_pm_path, ".csv")
+    if (file.exists(silver_pm_csv)) {
+      df_silver <- read.csv(silver_pm_csv, stringsAsFactors = FALSE)
+      cat(sprintf("[INFO] Đọc Silver từ CSV fallback: %s (%d rows)\n",
+                  silver_pm_csv, nrow(df_silver)))
+    } else {
+      stop(sprintf(
+        "[ERROR] Silver Player-Match không tồn tại: %s\n" \
+        "Kiểm tra silver_preprocessor đã chạy thành công và có dữ liệu thật.",
+        silver_pm_path
+      ))
+    }
+  } else {
+    df_silver <- read_bronze_parquet(silver_pm_path)
+    cat(sprintf("[INFO] Đọc Silver Player-Match thành công: %d player-match records\n",
+                nrow(df_silver)))
   }
-  
-  # 5. Gắn Feature Schema Metadata
+
+  # 3. Validate grain: mỗi dòng phải là unique (match_id, player_id)
+  n_unique <- nrow(unique(df_silver[, c("match_id", "player_id")]))
+  if (n_unique != nrow(df_silver)) {
+    stop(sprintf(
+      "[ERROR] Silver Player-Match chưa được aggregate đúng: %d rows nhưng chỉ %d unique (match_id, player_id). " \
+      "Kiểm tra aggregate_player_match() trong silver_preprocessor.",
+      nrow(df_silver), n_unique
+    ))
+  }
+  cat(sprintf("[INFO] Grain validation OK: %d unique player-match records\n", n_unique))
+
+  # 4. Tính toán 6 chỉ số đặc trưng ML Feature Contract (đúng ngữ nghĩa)
+  cat("[INFO] Tính toán Gold Feature Matrix...\n")
+
+  # Survival time tính bằng phút (tối thiểu 0.1 phút chống chia 0)
+  survival_minutes <- pmax(df_silver$survival_duration / 60.0, 0.1)
+
+  # a. kills_per_minute: tốc độ giết (kills = đã aggregate, tổng kills trong trận)
+  df_silver$kills_per_minute <- df_silver$kills / survival_minutes
+
+  # b. damage_per_minute: tốc độ gây sát thương
+  # Lưu ý: damage_dealt = 0 trong kill-event schema → feature này ít có ý nghĩa cho match_deaths data
+  df_silver$damage_per_minute <- df_silver$damage_dealt / survival_minutes
+
+  # c. headshot_ratio: tỷ lệ headshot trên tổng kills (đã aggregate)
+  df_silver$headshot_ratio <- ifelse(
+    df_silver$kills > 0,
+    df_silver$headshot_kills / df_silver$kills,
+    0.0
+  )
+
+  # d. damage_per_kill: sát thương trung bình mỗi kill
+  df_silver$damage_per_kill <- ifelse(
+    df_silver$kills > 0,
+    df_silver$damage_dealt / df_silver$kills,
+    df_silver$damage_dealt  # 0 nếu kills=0
+  )
+
+  # e. movement_per_minute: di chuyển tổng thể / thời gian sống
+  df_silver$total_distance    <- df_silver$walk_distance + df_silver$ride_distance + df_silver$swim_distance
+  df_silver$movement_per_minute <- df_silver$total_distance / survival_minutes
+
+  # f. performance_versus_lobby: chênh lệch kills so với trung bình trận (lobby-relative anomaly)
+  # Đây là feature quan trọng nhất cho anti-cheat: outlier kills trong lobby
+  lobby_avg_kills <- aggregate(kills ~ match_id, data = df_silver, FUN = mean)
+  colnames(lobby_avg_kills)[2] <- "avg_lobby_kills"
+  df_silver <- merge(df_silver, lobby_avg_kills, by = "match_id", all.x = TRUE)
+  df_silver$performance_versus_lobby <- df_silver$kills - df_silver$avg_lobby_kills
+
+  # 5. Bảo vệ toán học (NA / Inf / NaN Imputation)
+  cat("[INFO] Khử NA / Inf / NaN trong Feature Matrix...\n")
+  feature_cols <- c(
+    "kills_per_minute", "damage_per_minute", "headshot_ratio",
+    "damage_per_kill", "movement_per_minute", "performance_versus_lobby"
+  )
+  for (col in feature_cols) {
+    df_silver[[col]][is.na(df_silver[[col]])]       <- 0.0
+    df_silver[[col]][is.infinite(df_silver[[col]])] <- 0.0
+    df_silver[[col]][is.nan(df_silver[[col]])]      <- 0.0
+  }
+
+  # 6. Gắn Feature Schema Metadata
   df_silver$feature_version <- "v1.0"
-  df_silver$created_at <- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
-  
-  # Select Gold Columns
+  df_silver$created_at      <- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
+
+  # 7. Select Gold Columns — đúng 6 ML features + identifiers
   gold_df <- df_silver[, c(
-    "match_id", "player_id", "kills", "damage_dealt", "headshot_kills",
-    "win_place_perc", "total_distance", "headshot_ratio", "kills_per_minute",
-    "damage_per_minute", "damage_per_kill", "movement_per_minute",
-    "performance_versus_lobby", "max_kill_distance_m", "avg_burst_kill_interval_ms",
-    "spatial_teleport_score", "headshot_streak_count", "feature_version", "created_at"
+    "match_id", "player_id",
+    "kills", "damage_dealt", "headshot_kills",  # raw fields để debugging
+    "win_place_perc",
+    # 6 ML Feature Contract:
+    "kills_per_minute",         # Feature 1
+    "damage_per_minute",        # Feature 2
+    "headshot_ratio",           # Feature 3
+    "damage_per_kill",          # Feature 4
+    "movement_per_minute",      # Feature 5
+    "performance_versus_lobby", # Feature 6
+    "feature_version", "created_at"
   )]
-  
-  # 6. Ghi Gold Parquet File (Zstandard)
-  gold_base_dir <- file.path("gold", "player-match-features")
+
+  # 8. Ghi Gold Parquet File ra output_dir (Rust sẽ upload lên MinIO)
+  gold_base_dir <- file.path(output_dir, "gold", "player-match-features")
   dir.create(gold_base_dir, recursive = TRUE, showWarnings = FALSE)
-  
+
   gold_out <- file.path(gold_base_dir, sprintf("features_%s.parquet", batch_id))
-  
+
   if (requireNamespace("arrow", quietly = TRUE)) {
     arrow::write_parquet(gold_df, gold_out, compression = "zstd")
   } else {
+    # Fallback CSV
     write.csv(gold_df, paste0(gold_out, ".csv"), row.names = FALSE)
+    gold_out <- paste0(gold_out, ".csv")
   }
-  
-  cat(sprintf("[SUCCESS] Ghi thành công Gold Feature Store Parquet: %s (Feature Rows: %d)\n", gold_out, nrow(gold_df)))
-  
+
+  cat(sprintf("[SUCCESS] Ghi Gold Feature Store: %s (%d player-match features)\n",
+              gold_out, nrow(gold_df)))
+
   return(gold_df)
 }
