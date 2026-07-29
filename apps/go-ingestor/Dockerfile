@@ -1,55 +1,61 @@
 # ==========================================
-# Dockerfile — Go Ingestor (dataset-sync)
+# Dockerfile — Go Ingestor (dataset-sync + replay)
 # PUBG Anti-Cheat Data Platform (Production Hardened)
-# Tối ưu Docker Layer Caching với BuildKit mount cache
+# Build 2 binary trong 1 image: dataset-sync & replay
 # ==========================================
 
 # ------------------------------------------
-# Stage 1: Build Stage (Biên dịch Go Binary)
+# Stage 1: Builder — Biên dịch cả 2 Go Binary
 # ------------------------------------------
 FROM golang:1.26-alpine AS builder
 
-# Cài đặt ca-certificates để tải HTTPS an toàn
-# Layer này cache ổn định — chỉ đổi khi update base image
+# Cài đặt ca-certificates để HTTPS hoạt động an toàn và git cho VCS stamping
 RUN apk add --no-cache ca-certificates git
 
 WORKDIR /app
 
-# --- LAYER CACHE TỐI ƯU: Download dependencies trước ---
-# Copy go.mod và go.sum TRƯỚC KHI copy source code
-# Layer này chỉ rebuild khi go.mod/go.sum thay đổi (thêm/xóa dependency)
+# --- LAYER CACHE TỐI ƯU: Copy go.mod/go.sum trước source code ---
+# Layer này chỉ rebuild khi dependency thay đổi — không phải mỗi lần sửa code
 COPY go.mod go.sum ./
 
-# Dùng BuildKit mount cache để cache Go module download vào /root/go/pkg/mod
-# Lần sau build sẽ reuse cache thay vì download lại từ internet
+# Download dependencies — BuildKit mount cache tránh download lại mỗi build
 RUN --mount=type=cache,target=/root/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     go mod download
 
-# --- COPY SOURCE CODE THẬT ---
-# Layer này thay đổi mỗi khi source thay đổi, nhưng dependencies đã cache ở trên
+# Copy toàn bộ source code
 COPY . .
 
-# Biên dịch binary tĩnh (CGO_ENABLED=0) tối ưu cho Distroless
-# Dùng BuildKit mount cache cho Go build cache (~/.cache/go-build)
+# Build binary dataset-sync — CGO_ENABLED=0 để binary tĩnh không phụ thuộc libc
 RUN --mount=type=cache,target=/root/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=0 GOOS=linux go build -ldflags="-w -s" -o /app/bin/dataset-sync ./cmd/dataset-sync
 
-# ------------------------------------------
-# Stage 2: Runtime Stage (Google Distroless Static Debian12)
-# ------------------------------------------
-# Sử dụng Google Distroless siêu bảo mật, không có shell/bash
-FROM gcr.io/distroless/static-debian12:nonroot
+# Build binary replay — cùng cờ build, tĩnh và nhỏ
+RUN --mount=type=cache,target=/root/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 GOOS=linux go build -ldflags="-w -s" -o /app/bin/replay ./cmd/replay
 
-# Chạy dưới tài khoản không có quyền root (nonroot UID 65532)
-USER 65532:65532
+# ------------------------------------------
+# Stage 2: Runtime — Alpine nhỏ gọn, có shell để hỗ trợ cả 2 entrypoint
+# ------------------------------------------
+FROM alpine:3.20
 
-# Thư mục làm việc của runtime
+# ca-certificates cần thiết cho HTTPS calls (MinIO S3, Kaggle API)
+RUN apk add --no-cache ca-certificates
+
+# Chạy dưới user không có quyền root — tăng cường bảo mật
+RUN addgroup -S appgroup && adduser -S appuser -G appgroup
+
 WORKDIR /app
 
-# Copy binary đã biên dịch từ Stage 1
-COPY --from=builder /app/bin/dataset-sync /app/dataset-sync
+# Copy cả 2 binary đã build từ Stage 1
+COPY --from=builder /app/bin/dataset-sync /app/bin/dataset-sync
+COPY --from=builder /app/bin/replay       /app/bin/replay
 
-# Entrypoint thực thi command dataset-sync
-ENTRYPOINT ["/app/dataset-sync"]
+# Chuyển sang user không phải root
+USER appuser
+
+# Không set ENTRYPOINT cố định — để docker-compose override bằng command:
+# - service go-ingestor-sync  → command: ["/app/bin/dataset-sync"]
+# - service go-ingestor-replay → command: ["/app/bin/replay", "-limit=0", ...]

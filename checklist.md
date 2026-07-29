@@ -644,3 +644,36 @@
 * [x] Cấu hình Streaming CSV Line-by-Line Reader (`bufio.Scanner`) nạp dữ liệu rải rác.
 * [x] Thêm Ticker & Rate Limiter giả lập khoảng trễ tự nhiên giữa các bản ghi game events (`10ms - 50ms Jitter`).
 * [x] Giữ nguyên kích thước batch hiện tại và duy trì bộ nhớ đệm RAM của Go Ingestor siêu nhẹ (< 15MB RAM).
+
+---
+
+## Phase 38 — Production-Grade Go Ingestor Upgrades: Micro-Batch CLI Logging, Checkpoint Resume, Graceful Shutdown & Dataset Fix
+
+### Go Ingestor Micro-Batch Flush Logging
+* [x] Thêm `logrus.Entry` logger và `atomic.Int64` counters (`batchCounter`, `totalProduced`) vào `BatchFlusher` struct trong `internal/service/batch.go`.
+* [x] Nâng cấp `MaxBatchSize = 500` tin nhắn và `MaxBatchBytes = 64KB` (thay 20 tin/16KB cũ).
+* [x] Thêm method `SetLogger(*logrus.Entry)` để gán logger từ ngoài mà không vi phạm Dependency Inversion.
+* [x] In log chi tiết `🚀 [FLUSH BATCH]` mỗi lần flush thành công gồm `batch_index`, `batch_size`, `match_id`, `produced_so_far`, `timestamp`.
+* [x] Gọi `flusher.SetLogger(log)` trong `NewReplayer` để kết nối log stream.
+
+### Go Ingestor Checkpoint Resume & Reset
+* [x] Bật `-disable-checkpoint=false` mặc định trong target `make run` (trước đó là `true`).
+* [x] Thêm target `make run-reset` với cờ `-reset-checkpoint=true` để xóa checkpoint cũ và phát lại từ dòng 1.
+* [x] Nâng cấp log checkpoint từ `Debug` lên `Info` để người dùng thấy vị trí dừng trên Terminal: `💾 [CHECKPOINT] Đã lưu vị trí Checkpoint lên MinIO S3`.
+* [x] Fix bug double checkpoint save: Xóa lần gọi `saveCheckpoint` thủ công ở cuối `Run()`, chỉ để `defer` xử lý duy nhất.
+* [x] Fix bug `produced_records < valid_records`: Gọi `FlushRaw` trong `defer` block và cộng count vào `stats.ProducedRecords` (guard `!DryRun`).
+
+### Go Ingestor Graceful Shutdown (SIGINT / Ctrl+C)
+* [x] Cập nhật `defer` block trong `Replayer.Run()` để in `⚠️ Graceful Shutdown` thay vì log `Kết thúc` khi `ctx.Err() != nil`.
+* [x] Sửa exit path khi `ctx.Err() != nil` ở cuối vòng lặp: `return &r.stats, nil` thay vì `return &r.stats, err` (tránh propagate context.Canceled lên caller như lỗi thực sự).
+* [x] Guard `ctx.Err() != nil` trong CSV Producer goroutine và trong main result loop để dừng sạch không bị block.
+* [x] Cập nhật `cmd/replay/main.go` xử lý cả 2 case (lỗi thực sự vs graceful shutdown) để thoát với `Exit Code 0` khi Ctrl+C.
+* [x] Cập nhật `-limit=0` và `-stream-delay-ms=0` trong target `make run` để stream liên tục tốc độ tối đa.
+
+### Dataset Fix: Đúng Tên File Thực Tế Trong Kaggle Archive
+* [x] Phát hiện dataset `skihikingkevin/pubg-match-deaths` không chứa `deaths.csv` — tên file thực tế trong zip là `deaths/kill_match_stats_final_0.csv` (~1.9GB, ~1.9M records).
+* [x] Sửa `KAGGLE_SELECTED_FILE=deaths.csv` → `kill_match_stats_final_0.csv` trong tất cả Makefile targets: `init`, `run`, `run-reset`.
+* [x] Thêm Kafka env vars còn thiếu (`KAFKA_RAW_TOPIC`, `KAFKA_INVALID_TOPIC`) vào step 6 `make init`.
+* [x] Nâng cấp `extractZipFileFromBuffer` thêm comment hỗ trợ khớp full path lẫn basename.
+* [x] Thêm error message liệt kê tất cả file có sẵn trong archive khi không tìm thấy target file để debug nhanh.
+

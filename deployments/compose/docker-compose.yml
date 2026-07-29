@@ -225,6 +225,71 @@ services:
     networks:
       - pubg-platform-net
 
+  # ------------------------------------------
+  # 8. Go Ingestor — Dataset Sync Job (One-Shot Profile)
+  # Chạy bằng: make init (hoặc docker compose run --rm go-ingestor-sync)
+  # Profile ‘dataset-sync’ đảm bảo service này KHÔNG auto-start khi `docker compose up`
+  # ------------------------------------------
+  go-ingestor-sync:
+    build:
+      context: ../../apps/go-ingestor
+      dockerfile: Dockerfile
+    container_name: pubg-go-ingestor-sync
+    profiles: [dataset-sync] # Chỉ khởi chạy khi gọi tường minh
+    command: ["/app/bin/dataset-sync"]
+    depends_on:
+      kafka:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    environment:
+      - KAFKA_BROKERS=kafka:9092
+      - KAFKA_RAW_TOPIC=pubg.v1.player-stat.raw
+      - KAFKA_INVALID_TOPIC=pubg.v1.invalid
+      - MINIO_ENDPOINT=minio:9000
+      - MINIO_ACCESS_KEY=minioadmin
+      - MINIO_SECRET_KEY=minioadmin
+      - MINIO_BUCKET=fps-anticheat-datalake
+      - KAGGLE_DATASET_SLUG=skihikingkevin/pubg-match-deaths
+      - KAGGLE_SELECTED_FILE=kill_match_stats_final_0.csv
+    networks:
+      - pubg-platform-net
+
+  # ------------------------------------------
+  # 9. Go Ingestor — Replay Stream Engine (One-Shot Profile)
+  # Chạy bằng: make run (hoặc docker compose run --rm go-ingestor-replay)
+  # Profile ‘replay’ đảm bảo service này KHÔNG auto-start khi `docker compose up`
+  # ------------------------------------------
+  go-ingestor-replay:
+    build:
+      context: ../../apps/go-ingestor
+      dockerfile: Dockerfile
+    container_name: pubg-go-ingestor-replay
+    profiles: [replay] # Chỉ khởi chạy khi gọi tường minh
+    command:
+      - /app/bin/replay
+      - -limit=0           # Stream liên tục cho đến hết EOF thì lặp lại
+      - -stream-delay-ms=0 # Tốc độ tối đa, không delay nhân tạo
+      - -dry-run=false      # Phát thực vào Kafka
+      - -disable-checkpoint=false # Bật Checkpoint Resume tự động
+    depends_on:
+      kafka:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    environment:
+      - KAFKA_BROKERS=kafka:9092
+      - KAFKA_RAW_TOPIC=pubg.v1.player-stat.raw
+      - KAFKA_INVALID_TOPIC=pubg.v1.invalid
+      - MINIO_ENDPOINT=minio:9000
+      - MINIO_ACCESS_KEY=minioadmin
+      - MINIO_SECRET_KEY=minioadmin
+      - MINIO_BUCKET=fps-anticheat-datalake
+      - KAGGLE_DATASET_SLUG=skihikingkevin/pubg-match-deaths
+      - KAGGLE_SELECTED_FILE=kill_match_stats_final_0.csv
+    networks:
+      - pubg-platform-net
+
 # ------------------------------------------
 # Docker Networks & Volumes Definition
 # ------------------------------------------

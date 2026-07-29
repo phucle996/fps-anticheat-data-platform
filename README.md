@@ -1,8 +1,8 @@
 # 🛡️ FPS Anti-Cheat Data Platform
 
-Hệ thống xử lý và phân tích dữ liệu gian lận game PUBG end-to-end theo kiến trúc **Cloud-Native, High-Availability (HA) & Event-Driven Streaming Data Platform**.
+Hệ thống xử lý và phân tích dữ liệu gian lận game PUBG end-to-end theo kiến trúc **Cloud-native-inspired Event-Driven Streaming Data Platform** (môi trường local/dev).
 
-Dữ liệu tĩnh từ Kaggle được stream qua Kafka, xử lý batch hiệu năng cao bằng Rust để ghi vào Data Lake (MinIO), phân tích bằng R, huấn luyện mô hình ML (Python + ONNX), suy luận siêu tốc bằng Rust, và hiển thị kết quả trên Streamlit Dashboard.
+Dữ liệu tĩnh từ Kaggle được stream qua Kafka, xử lý batch hiệu năng cao bằng Rust để ghi vào Data Lake (MinIO), phân tích bằng R, huấn luyện mô hình ML (Python + ONNX), suy luận bằng Rust, và hiển thị kết quả trên Streamlit Dashboard.
 
 ---
 
@@ -15,11 +15,11 @@ Dữ liệu tĩnh từ Kaggle được stream qua Kafka, xử lý batch hiệu n
 
   ┌──────────────────────┐       ────── HTTPS API ──────>      ┌─────────────────────────────────┐
   │ Kaggle PUBG Dataset  │                                     │     Go Ingestor (Go 1.26)      │
-  │ (PUBG Telemetry CSVs)│                                     │ • Normalize & Validate Schema   │
-  └──────────────────────┘                                     │ • Micro-Batch (20msg/16KB/500ms)│
-                                                               │ • StreamDelay (real-time sim)   │
-                                                               │ • Checkpoint Resume (MinIO S3)  │
-                                                               └────────────────┬────────────────┘
+  │ (kill_match_stats    │                                     │ • Normalize & Validate Schema   │
+  │  _final_0.csv ~1.9M) │                                     │ • Micro-Batch (500msg/64KB/500ms)│
+  │                      │                                     │ • Checkpoint Resume (MinIO S3)  │
+  │                      │                                     │ • Graceful Shutdown SIGINT/⚡   │
+  └──────────────────────┘                                     └────────────────┬────────────────┘
                                                                                 │
                                                                     JSON Events │ (Key: match_id)
                                                                                 v
@@ -32,9 +32,9 @@ Dữ liệu tĩnh từ Kaggle được stream qua Kafka, xử lý batch hiệu n
                                                                                 v
   ┌────────────────────────────┐                                     ┌───────────────────────────────────┐
   │ MinIO S3 Data Lake         │                                     │ Rust Processor Container (Rust)   │
-  │ • Bronze (Raw Parquet)     │                                     │ • Consume Kafka -> Validate Rules │
-  │ • Silver (Cleaned Entities)│      <── Parquet + Manifest ──      │ • Arrow & Parquet (Zstd 4.2x)     │
-  │ • Gold (Feature Matrix)    │                                     │ • Durable Two-Phase Commit (2PC)  │
+  │ • Bronze (Raw Parquet)     │      <── Parquet + Manifest ──      │ • Consume Kafka -> Validate Rules │
+  │ • Silver (Cleaned Entities)│                                     │ • Arrow & Parquet (Zstd 4.2x)     │
+  │ • Gold (Feature Matrix)    │                                     │ • Ordered Write: S3→Manifest→Commit│
   │ • Models & Predictions     │                                     │ ┌───────────────────────────────┐ │
   └─────────────┬──────────────┘                                     │ │ R Worker Subprocess (R 4.4)   │ │
                 │                                                    │ │ • daemon_worker.R (5s idle)   │ │
@@ -48,12 +48,13 @@ Dữ liệu tĩnh từ Kaggle được stream qua Kafka, xử lý batch hiệu n
   │                                                                                                      │
   │ ┌─────────────────────────────────┐   ────── Export ONNX ──────>   ┌───────────────────────────────┐ │
   │ │ Python ML Worker (Python 3.13)  │                                │ Rust Inference Engine (Rust)  │ │
-  │ │ • Train IsoForest & XGBoost     │   Save to s3://pubg-models/    │ • ONNX Runtime + Hot-Swap RAM │ │
-  │ │ • Export 6-input ONNX Model     │   Signal: model.ready          │ • Robust Z-Score Evidence Gen │ │
+  │ │ • Supervised RF / Unsupervised  │   Save to s3://pubg-models/    │ • ONNX Runtime + Hot-Swap RAM │ │
+  │ │   IsoForest (no ground truth)   │   Signal: model.ready          │ • Z-Score Evidence Generation │ │
+  │ │ • Export 6-input ONNX Model     │                                │                               │ │
   │ └─────────────────────────────────┘                                └───────────────┬───────────────┘ │
   │                                                                                    │                 │
   │                                                                       Unix Socket  │ IPC Request/Resp│
-  │                                                                       /tmp/*.sock  │ (< 0.1ms)       │
+  │                                                                       /tmp/*.sock  │ (low-latency)   │
   │                                                                                    v                 │
   │                                                                    ┌───────────────────────────────┐ │
   │                                                                    │ Go REST API Gateway (Go 1.26) │ │
@@ -109,10 +110,11 @@ fps-anticheat/
 
 | Topic | Partitions | Retention | Producer | Consumer | Mô Tả |
 |:---|:---:|:---:|:---|:---|:---|
-| `pubg.v1.player-stat.raw` | 3 | 7 ngày | Go Ingestor | Rust Processor | Event Envelope hợp lệ, key = `match_id` |
-| `pubg.v1.invalid` | 1 | 30 ngày | Go Ingestor | (Audit) | Dead-Letter Queue bản ghi lỗi validation |
-| `pubg.v1.dataset.gold.ready` | — | — | Rust Processor | Python ML Worker | Signal khi Gold features sẵn sàng |
-| `pubg.v1.ml.model.ready` | — | — | Python ML Worker | Rust Inference | Signal khi model ONNX mới được export |
+| `pubg.v1.player-stat.raw` | 6 | 24h | Go Ingestor | Rust Processor | Event Envelope hợp lệ (match_summary + kill_event), key = `match_id` |
+| `pubg.v1.kill-event.raw` | 6 | 24h | Go Ingestor | Rust Processor | Kill events riêng (schema match_deaths) |
+| `pubg.v1.invalid` | 3 | 30 ngày | Go Ingestor | (Audit) | Dead-Letter Queue bản ghi lỗi validation |
+| `pubg.v1.dataset.gold.ready` | 1 | 24h | R ETL Worker | Python ML Worker | Signal khi Gold Parquet batch sẵn sàng |
+| `pubg.v1.ml.model.ready` | 1 | 7 ngày | Python ML Worker | Rust Inference | Signal khi ONNX model version mới được upload |
 
 ---
 
@@ -184,9 +186,10 @@ docker compose -f deployments/compose/docker-compose.yml up -d kafka minio init-
 ```bash
 make help         # Liệt kê tất cả các lệnh khả dụng
 make check-deps   # Kiểm tra Go, Rust, R, Python3, Docker
-make init         # Khởi tạo file .env, bật containers & tạo S3 Buckets / Kafka Topics
+make init         # Khởi tạo file .env, bật containers & tạo S3 Buckets / Kafka Topics / tải Dataset Kaggle lên MinIO
 make start        # Khởi chạy toàn bộ các containers hạ tầng
-make run          # Thực thi kịch bản Runbook End-to-End với data thực tế từ Kaggle CSV
+make run          # Stream Replay liên tục (Auto-Resume từ Checkpoint MinIO S3 nếu đã ngắt)
+make run-reset    # Xóa Checkpoint cũ, phát lại toàn bộ CSV từ dòng 1
 make stop         # Tạm dừng toàn bộ containers (bảo toàn volume dữ liệu)
 make restart      # Tái khởi động lại toàn bộ containers
 make purge        # Dọn dẹp triệt để containers, Docker volumes & file tạm (Zero-State)

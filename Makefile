@@ -4,7 +4,7 @@
 # ==========================================
 
 # Khai báo các phony target không liên quan tới file vật lý
-.PHONY: help init start run stop restart purge fmt test clean logs check-deps up down
+.PHONY: help init start run run-reset stop restart purge fmt test clean logs check-deps up down build-ingestor
 
 # Target mặc định khi gõ `make`
 .DEFAULT_GOAL := help
@@ -40,24 +40,14 @@ init:
 	@docker run --rm --network pubg-platform-net -e MINIO_ENDPOINT="http://minio:9000" -v $(PWD)/scripts/init_minio_datalake.sh:/init.sh --entrypoint /bin/sh minio/mc -c "mc alias set localminio http://minio:9000 minioadmin minioadmin && /init.sh" > /dev/null 2>&1 || true
 	@docker run --rm --network pubg-platform-net minio/mc mb --ignore-existing localminio/pubg-models > /dev/null 2>&1 || true
 	@docker run --rm --network pubg-platform-net minio/mc mb --ignore-existing localminio/pubg-predictions > /dev/null 2>&1 || true
-	@echo "[+] 5. Khởi tạo các Kafka Topics trên container pubg-kafka..."
-	@docker exec pubg-kafka kafka-topics --bootstrap-server localhost:9092 --create --if-not-exists --topic pubg.v1.player-stat.raw --partitions 1 --replication-factor 1 > /dev/null 2>&1 || true
-	@docker exec pubg-kafka kafka-topics --bootstrap-server localhost:9092 --create --if-not-exists --topic pubg.v1.invalid --partitions 1 --replication-factor 1 > /dev/null 2>&1 || true
-	@docker exec pubg-kafka kafka-topics --bootstrap-server localhost:9092 --create --if-not-exists --topic pubg.v1.dataset.gold.ready --partitions 1 --replication-factor 1 > /dev/null 2>&1 || true
-	@docker exec pubg-kafka kafka-topics --bootstrap-server localhost:9092 --create --if-not-exists --topic pubg.v1.ml.model.ready --partitions 1 --replication-factor 1 > /dev/null 2>&1 || true
-	@echo "[+] 6. Tải và đồng bộ Dataset thực tế lên MinIO S3 (Hiển thị Progress Bar %)..."
-	docker run --rm --network pubg-platform-net \
-		-v $(PWD)/apps/go-ingestor:/app -w /app \
-		-e KAFKA_BROKERS="kafka:9092" \
-		-e KAFKA_RAW_TOPIC="pubg.v1.player-stat.raw" \
-		-e KAFKA_INVALID_TOPIC="pubg.v1.invalid" \
-		-e MINIO_ENDPOINT="minio:9000" \
-		-e MINIO_ACCESS_KEY="minioadmin" \
-		-e MINIO_SECRET_KEY="minioadmin" \
-		-e MINIO_BUCKET="fps-anticheat-datalake" \
-		-e KAGGLE_DATASET_SLUG="skihikingkevin/pubg-match-deaths" \
-		-e KAGGLE_SELECTED_FILE="deaths.csv" \
-		golang:1.26-alpine go run ./cmd/dataset-sync
+	@echo "[+] 5. Kafka Topics được tạo tự động bởi init-kafka container (scripts/create-topics.sh — source of truth)."
+	@echo "       Topics: pubg.v1.player-stat.raw (6p), pubg.v1.kill-event.raw (6p), pubg.v1.invalid (3p),"
+	@echo "               pubg.v1.dataset.gold.ready (1p), pubg.v1.ml.model.ready (1p)"
+	@echo "[+] 6. Build image Go Ingestor (nếu chưa có) và tải Dataset lên MinIO S3..."
+	# Build image chứa cả 2 binary (dataset-sync + replay) — cache BuildKit nên lần sau rất nhanh
+	docker compose -f deployments/compose/docker-compose.yml build go-ingestor-sync
+	# Dùng image đã build — không cần golang:1.26-alpine go run, không download dependency
+	docker compose -f deployments/compose/docker-compose.yml run --rm go-ingestor-sync
 	@echo "  ✓ Khởi tạo toàn bộ môi trường hoàn tất 100%!"
 
 ## start: Khởi chạy toàn bộ hạ tầng Docker Compose stack
@@ -68,42 +58,30 @@ start:
 ## up: Alias của make start
 up: start
 
-## run: Thực thi Replay ingest liên tục (Resume từ Checkpoint nếu đã ngắt trước đó)
+
+
+## build-ingestor: Build Docker image go-ingestor (chứa cả dataset-sync & replay binary)
+build-ingestor:
+	@echo "[+] Build Docker image go-ingestor (2 binary: dataset-sync + replay)..."
+	docker compose -f deployments/compose/docker-compose.yml build go-ingestor-sync
+	@echo "  ✓ Image go-ingestor đã sẵn sàng!"
+
+## run: Stream Replay liên tục (Auto-Resume từ Checkpoint MinIO S3 nếu đã ngắt)
 run:
 	@echo "[+] 1. Kích hoạt Go Ingestor Replay Engine (Checkpoint Resume Mode)..."
 	@echo "    ℹ️  Nếu đã chạy trước đó, tiến trình sẽ tự động Resume từ vị trí checkpoint cuối cùng."
 	@echo "    ℹ️  Nếu muốn chạy lại từ đầu, hãy dùng: make run-reset"
-	docker run --rm --network pubg-platform-net \
-		-v $(PWD)/apps/go-ingestor:/app -w /app \
-		-e KAFKA_BROKERS="kafka:9092" \
-		-e MINIO_ENDPOINT="minio:9000" \
-		-e MINIO_ACCESS_KEY="minioadmin" \
-		-e MINIO_SECRET_KEY="minioadmin" \
-		-e MINIO_BUCKET="fps-anticheat-datalake" \
-		-e KAGGLE_DATASET_SLUG="skihikingkevin/pubg-match-deaths" \
-		-e KAGGLE_SELECTED_FILE="deaths.csv" \
-		-e KAFKA_RAW_TOPIC="pubg.v1.player-stat.raw" \
-		-e KAFKA_INVALID_TOPIC="pubg.v1.invalid" \
-		golang:1.26-alpine go run ./cmd/replay -limit=0 -stream-delay-ms=0 -dry-run=false -disable-checkpoint=false
-	@echo "[+] 2. Kích hoạt R Processor Medallion ETL (Silver & Gold Feature Engine)..."
-	@cd apps/rust-processor/r-processor && Rscript tests/test_silver_preprocessor.R > /dev/null 2>&1 && Rscript tests/test_gold_feature_engine.R > /dev/null 2>&1 && Rscript tests/test_eda_analyzer.R > /dev/null 2>&1
-	@echo "  ✓ Phát dữ liệu thực tế và flush xuống S3 Data Lake hoàn tất 100%!"
+	# Build image nếu chưa có hoặc code thay đổi — BuildKit cache nhanh khi không đổi dependency
+	docker compose -f deployments/compose/docker-compose.yml build go-ingestor-replay
+	# Dùng image đã build sẵn — không cần golang:1.26-alpine go run, không download dependency
+	docker compose -f deployments/compose/docker-compose.yml run --rm go-ingestor-replay
 
 ## run-reset: Xóa Checkpoint cũ và phát lại toàn bộ dữ liệu từ đầu (dòng 1)
 run-reset:
 	@echo "[+] 🔄 Xóa Checkpoint cũ, phát lại toàn bộ CSV từ dòng 1..."
-	docker run --rm --network pubg-platform-net \
-		-v $(PWD)/apps/go-ingestor:/app -w /app \
-		-e KAFKA_BROKERS="kafka:9092" \
-		-e MINIO_ENDPOINT="minio:9000" \
-		-e MINIO_ACCESS_KEY="minioadmin" \
-		-e MINIO_SECRET_KEY="minioadmin" \
-		-e MINIO_BUCKET="fps-anticheat-datalake" \
-		-e KAGGLE_DATASET_SLUG="skihikingkevin/pubg-match-deaths" \
-		-e KAGGLE_SELECTED_FILE="deaths.csv" \
-		-e KAFKA_RAW_TOPIC="pubg.v1.player-stat.raw" \
-		-e KAFKA_INVALID_TOPIC="pubg.v1.invalid" \
-		golang:1.26-alpine go run ./cmd/replay -limit=0 -stream-delay-ms=0 -dry-run=false -disable-checkpoint=false -reset-checkpoint=true
+	# Override command của service go-ingestor-replay thêm cờ -reset-checkpoint=true
+	docker compose -f deployments/compose/docker-compose.yml run --rm go-ingestor-replay \
+		/app/bin/replay -limit=0 -stream-delay-ms=0 -dry-run=false -disable-checkpoint=false -reset-checkpoint=true
 	@echo "  ✓ Reset hoàn tất, phát lại dữ liệu từ đầu thành công!"
 
 ## stop: Tạm dừng toàn bộ các containers đang chạy (bảo toàn volume dữ liệu)

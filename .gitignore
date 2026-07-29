@@ -70,3 +70,24 @@ Thumbs.db
 logs/
 tmp/
 scratch/
+
+# Python Cache & Build Artifacts
+# Bỏ qua bytecode cache, test cache và virtual environments
+# Các thư mục này KHÔNG nên commit vào repository
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyc
+*.pyo
+*.pyd
+.Python
+.pytest_cache/
+.coverage
+htmlcov/
+*.egg-info/
+dist/
+build/
+# Virtual environments — mỗi developer tự tạo riêng, không share qua Git
+venv/
+.venv/
+env/

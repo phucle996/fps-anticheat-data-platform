@@ -82,7 +82,13 @@ impl StreamProcessorApp {
                 _ = tokio::signal::ctrl_c() => {
                     info!("Nhận tín hiệu Graceful Shutdown từ OS (Ctrl+C), thực thi Flush bộ đệm dư thừa...");
                     if let Some(final_batch) = self.accumulator.flush() {
-                        let _ = self.process_completed_batch(final_batch).await;
+                        // Graceful shutdown: log lỗi nhưng vẫn break — không block tắt hệ thống
+                        if let Err(err) = self.process_completed_batch(final_batch).await {
+                            error!(
+                                error = %err,
+                                "Lỗi xử lý batch cuối trong Graceful Shutdown — dữ liệu chưa được commit S3"
+                            );
+                        }
                     }
                     break;
                 }
@@ -90,7 +96,15 @@ impl StreamProcessorApp {
                     match msg_result {
                         Ok(Some(msg)) => {
                             if let Some(completed_batch) = self.accumulator.push(msg) {
-                                let _ = self.process_completed_batch(completed_batch).await;
+                                // Batch đầy: xử lý và log lỗi rõ ràng — không nuốt error im lặng
+                                // at-least-once: tiếp tục consume batch tiếp theo ngay cả khi batch này lỗi
+                                // Offset chưa commit nên Kafka sẽ redeliver batch lỗi khi restart
+                                if let Err(err) = self.process_completed_batch(completed_batch).await {
+                                    error!(
+                                        error = %err,
+                                        "Lỗi xử lý completed batch (size-triggered flush) — batch sẽ được redeliver khi restart"
+                                    );
+                                }
                             }
                         }
                         Ok(None) => {}
@@ -104,7 +118,13 @@ impl StreamProcessorApp {
             // Kiểm tra Timer Flush theo nhịp flush_interval_ms
             if self.accumulator.should_flush_timer() {
                 if let Some(completed_batch) = self.accumulator.flush() {
-                    let _ = self.process_completed_batch(completed_batch).await;
+                    // Timer flush: log lỗi nhưng tiếp tục vòng lặp — offset chưa commit = sẽ redeliver
+                    if let Err(err) = self.process_completed_batch(completed_batch).await {
+                        error!(
+                            error = %err,
+                            "Lỗi xử lý timer-triggered flush batch — batch sẽ được redeliver khi restart"
+                        );
+                    }
                 }
             }
         }
@@ -113,7 +133,10 @@ impl StreamProcessorApp {
         Ok(())
     }
 
-    /// Process_completed_batch xử lý 1 CompletedBatch theo đúng quy trình Durable Two-Phase Commit & Dynamic R Worker Pool
+    /// process_completed_batch xử lý 1 CompletedBatch theo quy trình:
+    /// write-before-commit: S3 Parquet → Manifest → Kafka offset commit → dispatch R worker
+    /// Đây là ordered write pattern (at-least-once), KHÔNG phải distributed 2PC.
+    /// Lỗi ở bất kỳ bước nào (upload Parquet, upload Manifest) sẽ return Err — caller có trách nhiệm log và xử lý.
     pub async fn process_completed_batch(&self, completed_batch: CompletedBatch) -> Result<()> {
         // 1. Data Quality Validation
         let val_outcome = EventValidator::validate_batch(completed_batch.events);
@@ -156,22 +179,36 @@ impl StreamProcessorApp {
             let manifest_path = MinioWriter::generate_manifest_path(&completed_batch.batch_id, &sample_time);
             self.writer.upload_manifest(&manifest_path, &manifest).await?;
 
-            // 7. Commit Kafka Offsets (CHỈ THỰC THI SAU KHI PHA 1 VÀ 2 THÀNH CÔNG)
-            if let Err(err) = self.consumer.commit_partition_offsets(&completed_batch.partition_offsets) {
-                warn!(error = %err, "Lỗi commit Kafka offsets cho batch");
-            } else {
-                info!(
-                    batch_id = %completed_batch.batch_id,
-                    valid_count = val_outcome.valid_count,
-                    dedup_count = dedup_outcome.unique_records.len(),
-                    checksum = %checksum,
-                    bronze_path = %bronze_path,
-                    manifest_path = %manifest_path,
-                    "Hoàn tất quy trình Durable Two-Phase Commit cho Processing Batch!"
-                );
+            // 7. Commit Kafka Offsets CHỈ SAU KHI S3 Parquet + Manifest đã upload thành công
+            // Đây là ordered write (write-before-offset-commit) — đảm bảo at-least-once delivery
+            // Nếu commit fail: warn nhưng vẫn dispatch R worker (data đã safe trên S3)
+            match self.consumer.commit_partition_offsets(&completed_batch.partition_offsets) {
+                Err(err) => {
+                    // Kafka commit fail: data đã lên S3, nhưng offset chưa advance
+                    // → Kafka sẽ redeliver batch này khi restart → R dedup xử lý trùng lặp
+                    error!(
+                        error = %err,
+                        batch_id = %completed_batch.batch_id,
+                        bronze_path = %bronze_path,
+                        "Lỗi commit Kafka offsets — data đã lên S3 nhưng offset chưa advance, batch có thể bị redeliver"
+                    );
+                    // Vẫn dispatch R worker vì data đã an toàn trên S3
+                    self.r_pool.dispatch_manifest(manifest_path);
+                }
+                Ok(()) => {
+                    info!(
+                        batch_id = %completed_batch.batch_id,
+                        valid_count = val_outcome.valid_count,
+                        dedup_count = dedup_outcome.unique_records.len(),
+                        checksum = %checksum,
+                        bronze_path = %bronze_path,
+                        manifest_path = %manifest_path,
+                        "Hoàn tất ordered write (S3 Parquet → Manifest → Offset Commit) cho batch"
+                    );
 
-                // 8. Kích hoạt Spark-Style Dynamic R Worker Pool (Non-blocking Task Dispatch)
-                self.r_pool.dispatch_manifest(manifest_path);
+                    // 8. Kích hoạt Dynamic R Worker Pool (Non-blocking Task Dispatch)
+                    self.r_pool.dispatch_manifest(manifest_path);
+                }
             }
         }
 

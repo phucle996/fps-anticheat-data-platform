@@ -165,6 +165,7 @@ func (s *DatasetSyncService) Run(ctx context.Context) error {
 }
 
 // extractZipFileFromBuffer giải nén file được chọn từ bộ nhớ zip buffer an toàn (Zip Slip Protection)
+// Hỗ trợ khop tên full path (deaths/kill_match_stats_final_0.csv), hoặc chỉ basename (kill_match_stats_final_0.csv)
 func extractZipFileFromBuffer(zipBytes []byte, targetFilename string) (*ExtractedFile, error) {
 	zipReader, err := zip.NewReader(bytes.NewReader(zipBytes), int64(len(zipBytes)))
 	if err != nil {
@@ -177,6 +178,7 @@ func extractZipFileFromBuffer(zipBytes []byte, targetFilename string) (*Extracte
 			return nil, fmt.Errorf("phát hiện tấn công Zip Slip với file path: %s", file.Name)
 		}
 
+		// Khớp full path hoặc basename — hỗ trợ cả "deaths/kill_match_stats_final_0.csv" lẫn "kill_match_stats_final_0.csv"
 		if file.Name == targetFilename || filepath.Base(file.Name) == targetFilename {
 			rc, err := file.Open()
 			if err != nil {
@@ -198,5 +200,14 @@ func extractZipFileFromBuffer(zipBytes []byte, targetFilename string) (*Extracte
 		}
 	}
 
-	return nil, fmt.Errorf("không tìm thấy file %s trong archive zip", targetFilename)
+	// Liệt kê tất cả file có trong zip để giúp debug khi không tìm thấy target file
+	var availableFiles []string
+	for _, f := range zipReader.File {
+		if !f.FileInfo().IsDir() {
+			availableFiles = append(availableFiles, f.Name)
+		}
+	}
+
+	return nil, fmt.Errorf("không tìm thấy file '%s' trong archive zip.\nCác file có sẵn trong archive:\n  - %s",
+		targetFilename, strings.Join(availableFiles, "\n  - "))
 }
