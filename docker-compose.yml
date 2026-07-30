@@ -1,9 +1,286 @@
 # ==========================================
-# Root Docker Compose Wrapper
-# PUBG Anti-Cheat Data Platform
+# Docker Compose Infrastructure Configuration
+# PUBG Anti-Cheat Data Platform (Cloud Native / Dev Environment)
 # ==========================================
+# Cấu hình hạ tầng trung tâm cho toàn bộ hệ thống phát hiện gian lận real-time.
+# Tích hợp đầy đủ: Message Broker (Kafka KRaft), Object Storage (MinIO S3),
+# Stream Processor (Rust), ML Platform Ecosystem (Python ML + Rust ONNX + Go API),
+# Web Dashboard (Streamlit) và Ingestion Engine (Go Ingestor).
+#
+# Nguyên tắc phân tách biến môi trường (Modularization):
+# Mỗi sub-project dưới thư mục `apps/` quản lý file `.env` riêng biệt.
+# Docker Compose nạp cấu hình qua chỉ thị `env_file:` nhằm tránh làm xáo trộn cấu hình chung.
 
-# File wrapper tại gốc dự án trỏ trực tiếp tới cấu hình chính
-# Giúp chạy `docker compose up -d` nhanh từ thư mục gốc
-include:
-  - deployments/compose/docker-compose.yml
+services:
+  # ------------------------------------------
+  # 1. Kafka Message Broker (KRaft Mode - Confluent Kafka)
+  # ------------------------------------------
+  # Hệ thống Message Queue chịu tải cao, hoạt động ở chế độ KRaft (không phụ thuộc Zookeeper)
+  # Đảm bảo HA và khả năng mở rộng theo chiều ngang (horizontal scaling).
+  kafka:
+    image: confluentinc/cp-kafka:7.6.1
+    container_name: pubg-kafka
+    restart: unless-stopped
+    ports:
+      # Port kết nối Client API từ ngoài host (localhost:9092)
+      - "9092:9092"
+    environment:
+      # Cấu hình Confluent Kafka chạy KRaft Mode (Controller + Broker trên cùng 1 node local)
+      - KAFKA_NODE_ID=1
+      - KAFKA_PROCESS_ROLES=controller,broker
+      - KAFKA_CONTROLLER_QUORUM_VOTERS=1@kafka:9093
+      # Cấu hình Listeners cho kết nối nội bộ Docker network (kafka:9092) và Controller (9093)
+      - KAFKA_LISTENERS=PLAINTEXT://:9092,CONTROLLER://:9093
+      - KAFKA_ADVERTISED_LISTENERS=PLAINTEXT://kafka:9092
+      - KAFKA_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      - KAFKA_CONTROLLER_LISTENER_NAMES=CONTROLLER
+      - KAFKA_INTER_BROKER_LISTENER_NAME=PLAINTEXT
+      # Cluster ID cố định cho KRaft metadata initialization
+      - CLUSTER_ID=gt3cfdSiRpeCLXZWvoM5Cw
+      # Tắt tự động tạo topic để đảm bảo nghiêm ngặt về schema và partition strategy
+      - KAFKA_AUTO_CREATE_TOPICS_ENABLE=false
+      - KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR=1
+      - KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR=1
+      - KAFKA_TRANSACTION_STATE_LOG_MIN_ISR=1
+    volumes:
+      # Volume lưu trữ dữ liệu message persistent trên host disk
+      - kafka_data:/var/lib/kafka/data
+    networks:
+      - pubg-platform-net
+    healthcheck:
+      # Kiểm tra sẵn sàng phục vụ kết nối của Kafka broker
+      test: [ "CMD-SHELL", "kafka-broker-api-versions --bootstrap-server kafka:9092 > /dev/null 2>&1" ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  # ------------------------------------------
+  # 2. MinIO Object Storage (Data Lake S3 Compatibility)
+  # ------------------------------------------
+  # Hệ thống lưu trữ đối tượng dạng S3 cho Data Lake (Parquet/JSON) và ONNX Model Registry.
+  minio:
+    image: minio/minio:RELEASE.2024-05-28T17-19-04Z
+    container_name: pubg-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    ports:
+      # Port S3 API Gateway (localhost:9000)
+      - "9000:9000"
+      # Port Web Console Management (localhost:9001)
+      - "9001:9001"
+    environment:
+      # Tài khoản root quản trị MinIO Object Storage
+      - MINIO_ROOT_USER=minioadmin
+      - MINIO_ROOT_PASSWORD=minioadmin
+    volumes:
+      # Volume bảo toàn dữ liệu Parquet Data Lake & Model Artifacts
+      - minio_data:/data
+    networks:
+      - pubg-platform-net
+    healthcheck:
+      # Healthcheck liveness endpoint chính thức của MinIO S3 API
+      test: [ "CMD", "curl", "-f", "http://localhost:9000/minio/health/live" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ------------------------------------------
+  # 3. Init Container: Kafka Topics Creator
+  # ------------------------------------------
+  # Container khởi tạo tự động các Kafka Topics cần thiết theo đúng partition strategy
+  init-kafka:
+    image: confluentinc/cp-kafka:7.6.1
+    container_name: pubg-init-kafka
+    depends_on:
+      kafka:
+        condition: service_healthy # Chỉ thực thi khi Kafka broker đã hoàn toàn healthy
+    volumes:
+      # Mount script khởi tạo topic từ thư mục ./init gốc dự án
+      - ./init/create-topics.sh:/create-topics.sh:ro
+    entrypoint: [ "/bin/bash", "/create-topics.sh", "kafka:9092" ]
+    networks:
+      - pubg-platform-net
+
+  # ------------------------------------------
+  # 3b. Kafka UI Web Management Dashboard (Port 8080)
+  # ------------------------------------------
+  # Giao diện web trực quan kiểm tra topics, consumer groups, offset lag thực tế
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: pubg-kafka-ui
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    depends_on:
+      kafka:
+        condition: service_healthy
+    environment:
+      - KAFKA_CLUSTERS_0_NAME=pubg-kafka-cluster
+      - KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS=kafka:9092
+    networks:
+      - pubg-platform-net
+
+  # ------------------------------------------
+  # 4. Init Container: MinIO Bucket Creator
+  # ------------------------------------------
+  # Container khởi tạo tự động các S3 Buckets cho Data Lake (fps-anticheat-datalake) & Models (pubg-models)
+  init-minio:
+    image: minio/mc:latest
+    container_name: pubg-init-minio
+    depends_on:
+      minio:
+        condition: service_healthy # Chỉ thực thi khi MinIO S3 API đã healthy
+    environment:
+      - MINIO_URL=http://minio:9000
+      - MINIO_ACCESS_KEY=minioadmin
+      - MINIO_SECRET_KEY=minioadmin
+      - MINIO_BUCKET=pubg-data
+    volumes:
+      # Mount script khởi tạo S3 Bucket từ thư mục ./init gốc dự án
+      - ./init/create-buckets.sh:/create-buckets.sh:ro
+    entrypoint: [ "/bin/sh", "/create-buckets.sh" ]
+    networks:
+      - pubg-platform-net
+
+  # ------------------------------------------
+  # 5. Rust Stream Processor Application
+  # ------------------------------------------
+  # Stream Processing Engine viết bằng Rust: tiêu thụ telemetry event từ Kafka,
+  # kiểm soát memory footprint và flush dữ liệu dạng Parquet nén Snappy lên MinIO S3 Lake house.
+  # Nạp biến môi trường từ file .env độc lập của sub-project apps/rust-processor
+  rust-processor:
+    build:
+      context: ./apps/rust-processor
+      dockerfile: Dockerfile
+    container_name: pubg-rust-processor
+    restart: unless-stopped
+    env_file:
+      - ./apps/rust-processor/.env
+    deploy:
+      resources:
+        limits:
+          cpus: '4.00' # Cấp tối đa 4 core CPU cho xử lý luồng sự kiện high-throughput
+          memory: 4G # Giới hạn tối đa 4GB RAM chống OOM
+        reservations:
+          cpus: '1.00' # Đảm bảo tối thiểu 1 core CPU
+          memory: 1G # Đảm bảo tối thiểu 1GB RAM
+    depends_on:
+      kafka:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      init-kafka:
+        condition: service_completed_successfully
+      init-minio:
+        condition: service_completed_successfully
+    networks:
+      - pubg-platform-net
+
+  # ------------------------------------------
+  # 6. ML Platform Ecosystem Container (Go Gateway API + Rust ONNX Engine + Python Training Worker)
+  # ------------------------------------------
+  # Dịch vụ suy luận thực thi real-time risk assessment, tích hợp IPC socket zero-copy truyền dữ liệu.
+  # Nạp biến môi trường từ file .env độc lập của sub-project apps/ml-platform
+  ml-platform:
+    build:
+      context: ./apps/ml-platform
+      dockerfile: Dockerfile
+    container_name: pubg-ml-platform
+    restart: unless-stopped
+    ports:
+      - "8081:8081"
+    env_file:
+      - ./apps/ml-platform/.env
+    depends_on:
+      kafka:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    networks:
+      - pubg-platform-net
+
+  # ------------------------------------------
+  # 7. Streamlit Web Dashboard (Port 8501)
+  # ------------------------------------------
+  # Dashboard giao diện trực quan cho Analyst / Anti-Cheat Operators giám sát rủi ro gian lận.
+  # Nạp biến môi trường từ file .env độc lập của sub-project apps/streamlit-dashboard
+  streamlit-dashboard:
+    build:
+      context: ./apps/streamlit-dashboard
+      dockerfile: Dockerfile
+    container_name: pubg-streamlit-dashboard
+    restart: unless-stopped
+    ports:
+      - "8501:8501"
+    env_file:
+      - ./apps/streamlit-dashboard/.env
+    depends_on:
+      minio:
+        condition: service_healthy
+    networks:
+      - pubg-platform-net
+
+  # ------------------------------------------
+  # 8. Go Ingestor — Dataset Sync Job (One-Shot Profile)
+  # ------------------------------------------
+  # Job đồng bộ dữ liệu Kaggle ban đầu, chạy theo profile 'dataset-sync'.
+  # Nạp biến môi trường từ file .env độc lập của sub-project apps/go-ingestor
+  go-ingestor-sync:
+    build:
+      context: ./apps/go-ingestor
+      dockerfile: Dockerfile
+    container_name: pubg-go-ingestor-sync
+    profiles: [dataset-sync] # Không tự động chạy khi 'docker compose up' thông thường
+    command: ["/app/bin/dataset-sync"]
+    env_file:
+      - ./apps/go-ingestor/.env
+    depends_on:
+      kafka:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    networks:
+      - pubg-platform-net
+
+  # ------------------------------------------
+  # 9. Go Ingestor — Replay Stream Engine (One-Shot Profile)
+  # ------------------------------------------
+  # Replay Engine phát lại toàn bộ dòng sự kiện match deaths real-time vào Kafka topic.
+  # Nạp biến môi trường từ file .env độc lập của sub-project apps/go-ingestor
+  go-ingestor-replay:
+    build:
+      context: ./apps/go-ingestor
+      dockerfile: Dockerfile
+    container_name: pubg-go-ingestor-replay
+    profiles: [replay] # Không tự động chạy khi 'docker compose up' thông thường
+    command:
+      - /app/bin/replay
+      - -limit=0           # Stream liên tục cho đến hết EOF
+      - -stream-delay-ms=0 # Tốc độ tối đa
+      - -dry-run=false      # Phát thực vào Kafka
+      - -disable-checkpoint=false # Bật Checkpoint Resume tự động chống mất mát dữ liệu
+    env_file:
+      - ./apps/go-ingestor/.env
+    depends_on:
+      kafka:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    networks:
+      - pubg-platform-net
+
+# ------------------------------------------
+# Docker Networks & Volumes Definition
+# ------------------------------------------
+networks:
+  pubg-platform-net:
+    name: pubg-platform-net
+    driver: bridge
+
+volumes:
+  kafka_data:
+    name: pubg_kafka_data
+  minio_data:
+    name: pubg_minio_data

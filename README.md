@@ -91,14 +91,13 @@ fps-anticheat/
 │   ├── examples/                     # Sample valid/invalid events
 │   └── data-dictionary/              # Từ điển giải thích các chỉ số game
 ├── configs/                          # Cấu hình môi trường (local, dev, production)
-├── deployments/                      # Docker Compose & K8s manifests
-│   └── compose/                      # docker-compose.yml + init scripts
+├── init/                             # Script khởi tạo Kafka topics & MinIO buckets
 ├── docs/                             # Tài liệu kiến trúc & Test Suites
 │   ├── DATA_LAKE_LAYOUT.md           # Quy chuẩn Medallion Data Lake
 │   ├── DOCKER_INTEGRATION_TEST_SUITE.md
 │   └── EDA_REPORT.md
 ├── scripts/                          # Shell scripts setup & testing
-├── docker-compose.yml                # Root wrapper -> deployments/compose/
+├── docker-compose.yml                # Docker Compose chính (Cloud Native / Local Dev)
 ├── Makefile                          # Multi-language monorepo commands
 ├── ARCH.md                           # Tài liệu kiến trúc chi tiết
 └── checklist.md                      # Roadmap & tiến độ dự án
@@ -178,7 +177,7 @@ fps-anticheat-datalake/
 docker compose up -d
 
 # Hoặc chỉ hạ tầng cơ sở
-docker compose -f deployments/compose/docker-compose.yml up -d kafka minio init-kafka init-minio
+docker compose up -d kafka minio init-kafka init-minio
 ```
 
 ### Lệnh Makefile hữu ích

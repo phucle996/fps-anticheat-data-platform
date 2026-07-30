@@ -14,6 +14,7 @@ data/checkpoints/*
 # Environment variables & Secret credentials
 # Bảo vệ Kaggle API Key, S3 Secret Key và SSL Certificates
 .env
+**/.env
 .env.local
 .env.development
 .env.production

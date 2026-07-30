@@ -60,7 +60,7 @@ fps-anticheat-datalake/                     pubg-models/
 ## 5. 🐳 Deployment Topology
 
 ```text
-deployments/compose/docker-compose.yml
+docker-compose.yml
 ├── kafka               (Kafka Broker KRaft Mode, Port 9092)
 ├── kafka-ui            (Kafka UI Web Dashboard, Port 8080)
 ├── minio               (MinIO S3 Storage, Ports 9000+9001)
