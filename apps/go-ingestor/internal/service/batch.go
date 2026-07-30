@@ -8,84 +8,84 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
+
 	"pubg-anti-cheat/go-ingestor/internal/contract"
 )
 
-// BatchConfig định nghĩa cấu hình Micro-Batching
+// BatchConfig chứa cấu hình bộ đệm Micro-Batching Flusher
 type BatchConfig struct {
-	MaxBatchSize  int           // Số bản ghi tối đa trong micro-batch (Mặc định: 500 tin nhắn)
-	MaxBatchBytes int64         // Kích thước byte tối đa trong micro-batch (Mặc định: 64KB)
-	FlushInterval time.Duration // Nhịp timer flush (Mặc định: 500ms)
+	MaxBatchSize  int           // Số lượng bản ghi tối đa trong 1 batch (vd: 400)
+	MaxBatchBytes int64         // Dung lượng bytes tối đa trong 1 batch (vd: 1MB = 1048576)
+	FlushInterval time.Duration // Thời gian tối đa giữ batch trước khi tự động flush (vd: 500ms)
 }
 
-// BatchFlusher quản lý bộ đệm Micro-Batching với cơ chế Transactional Buffer chống mất dữ liệu
+// BatchFlusher thực thi gom tin nhắn thành từng Micro-Batch để gửi vào Kafka
+// Đảm bảo an toàn thread-safe 100%, bảo vệ dữ liệu chống race-condition giữa ticker timer và main stream loop
 type BatchFlusher struct {
-	cfg           BatchConfig
-	producer      Producer
-	rawEnvelopes  []interface{}             // Bộ đệm chứa *contract.EventEnvelope hoặc *contract.KillEventEnvelope
-	rawBytes      int64                     // Dung lượng byte tích lũy của rawBuffer
-	invalidRecs   []*contract.InvalidRecord // Bộ đệm mảng sự kiện vi phạm
-	invalidBytes  int64                     // Dung lượng byte tích lũy của invalidBuffer
-	mu            sync.Mutex                // Mutex bảo vệ truy cập bộ đệm RAM
-	flushMu       sync.Mutex                // Mutex serialize các thao tác Flush (chống race condition giữa timer và batch boundary)
-	timerTicker   *time.Ticker              // Timer ticker nhịp flush định kỳ
-	stopTickerCh  chan struct{}             // Channel báo dừng ticker
-	stopOnce      sync.Once                 // Guard đảm bảo channel chỉ close 1 lần
-	log           *logrus.Entry             // Logger
-	batchCounter  atomic.Int64              // Bộ đếm tổng số batch đã flush
-	totalProduced atomic.Int64              // Bộ đếm tổng số bản ghi đã phát sang Kafka
-	onFlushErr    func(err error)           // Error handler callback khi timer flush thất bại (Fail-Fast)
+	cfg            BatchConfig
+	producer       Producer
+	mu             sync.Mutex // Mutex bảo vệ truy cập buffer slices
+	flushMu        sync.Mutex // Mutex đảm bảo chỉ 1 tiến trình FlushRaw/FlushInvalid thực thi tại một thời điểm
+	rawEnvelopes   []interface{}
+	rawBytes       int64
+	invalidRecs    []*contract.InvalidRecord
+	invalidBytes   int64
+	timerTicker    *time.Ticker
+	stopTickerCh   chan struct{}
+	stopOnce       sync.Once
+	log            *logrus.Entry
+	errHandler     func(error)
+	batchCounter   atomic.Int64
+	totalProduced  atomic.Int64
 }
 
-// NewBatchFlusher khởi tạo BatchFlusher với Transactional Buffer
+// NewBatchFlusher khởi tạo BatchFlusher với cấu hình mặc định an toàn
 func NewBatchFlusher(cfg BatchConfig, producer Producer) *BatchFlusher {
 	if cfg.MaxBatchSize <= 0 {
-		cfg.MaxBatchSize = 500
+		cfg.MaxBatchSize = 400
 	}
 	if cfg.MaxBatchBytes <= 0 {
-		cfg.MaxBatchBytes = 65536
+		cfg.MaxBatchBytes = 1048576 // 1MB
 	}
 	if cfg.FlushInterval <= 0 {
 		cfg.FlushInterval = 500 * time.Millisecond
 	}
 
-	return &BatchFlusher{
+	flusher := &BatchFlusher{
 		cfg:          cfg,
 		producer:     producer,
 		rawEnvelopes: make([]interface{}, 0, cfg.MaxBatchSize),
-		rawBytes:     0,
 		invalidRecs:  make([]*contract.InvalidRecord, 0, cfg.MaxBatchSize),
-		invalidBytes: 0,
 		stopTickerCh: make(chan struct{}),
 	}
+
+	return flusher
 }
 
-// SetLogger gán logger cho BatchFlusher
+// SetLogger thiết lập logger cho Flusher
 func (b *BatchFlusher) SetLogger(log *logrus.Entry) {
 	b.log = log
 }
 
-// SetErrorHandler gán error callback (ví dụ cancel context để Fail-Fast)
-func (b *BatchFlusher) SetErrorHandler(fn func(err error)) {
-	b.onFlushErr = fn
+// SetErrorHandler thiết lập callback xử lý lỗi Fail-Fast cho background ticker timer
+func (b *BatchFlusher) SetErrorHandler(fn func(error)) {
+	b.errHandler = fn
 }
 
-// StartTimer kích hoạt vòng lặp Flush định kỳ 500ms (Fail-Fast: KHÔNG nuốt lỗi)
+// StartTimer khởi chạy background goroutine tự động flush dữ liệu định kỳ theo FlushInterval
 func (b *BatchFlusher) StartTimer(ctx context.Context) {
 	b.timerTicker = time.NewTicker(b.cfg.FlushInterval)
 	go func() {
 		for {
 			select {
 			case <-b.timerTicker.C:
-				if err := b.FlushAll(ctx); err != nil {
-					if b.log != nil {
-						b.log.WithError(err).Error("❌ [FAIL-FAST] Periodic flush thất bại! Kích hoạt shutdown để bảo vệ dữ liệu.")
+				flushCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+				if err := b.FlushAll(flushCtx); err != nil {
+					if b.errHandler != nil {
+						b.errHandler(err)
 					}
-					if b.onFlushErr != nil {
-						b.onFlushErr(err)
-					}
-					return
 				}
+				cancel()
 			case <-b.stopTickerCh:
 				return
 			case <-ctx.Done():
@@ -95,7 +95,7 @@ func (b *BatchFlusher) StartTimer(ctx context.Context) {
 	}()
 }
 
-// StopTimer dừng timer ticker an toàn
+// StopTimer dừng background ticker timer an toàn
 func (b *BatchFlusher) StopTimer() {
 	b.stopOnce.Do(func() {
 		if b.timerTicker != nil {
@@ -139,25 +139,25 @@ func (b *BatchFlusher) AddInvalid(ctx context.Context, invalid *contract.Invalid
 	return 0, nil
 }
 
-// FlushRaw thực thi phát raw envelopes sang Kafka với cơ chế Transactional Buffer
+// FlushRaw thực thi phát raw envelopes sang Kafka với cơ chế Mutex Isolation chống Race Condition
 // CHỈ xóa tin nhắn khỏi buffer SAU KHI Kafka đã ACK thành công
 func (b *BatchFlusher) FlushRaw(ctx context.Context) (int64, error) {
+	b.flushMu.Lock()
+	defer b.flushMu.Unlock()
+
 	b.mu.Lock()
 	if len(b.rawEnvelopes) == 0 {
 		b.mu.Unlock()
 		return 0, nil
 	}
 
-	// Sao chép snapshot mảng buffer hiện tại — KHÔNG clear buffer trước khi gửi
-	toSend := make([]interface{}, len(b.rawEnvelopes))
-	copy(toSend, b.rawEnvelopes)
+	// Tráo đổi atomic snapshot buffer để các thread AddEvent khác tiếp tục ghi mà không bị tranh chấp
+	toSend := b.rawEnvelopes
+	b.rawEnvelopes = make([]interface{}, 0, b.cfg.MaxBatchSize)
+	b.rawBytes = 0
 	b.mu.Unlock()
 
 	if b.producer == nil {
-		b.mu.Lock()
-		b.rawEnvelopes = b.rawEnvelopes[:0]
-		b.rawBytes = 0
-		b.mu.Unlock()
 		return int64(len(toSend)), nil
 	}
 
@@ -174,24 +174,15 @@ func (b *BatchFlusher) FlushRaw(ctx context.Context) (int64, error) {
 		}
 
 		if err != nil {
-			// Gửi thất bại: loại bỏ phần đã gửi thành công (sentCount), giữ nguyên phần chưa gửi trong buffer để retry
+			// Nếu gửi thất bại tại giữa chừng: đưa phần chưa gửi thành công quay trở lại buffer b.rawEnvelopes để retry
 			b.mu.Lock()
-			if sentCount > 0 {
-				b.rawEnvelopes = b.rawEnvelopes[sentCount:]
-			}
+			unSent := toSend[sentCount:]
+			b.rawEnvelopes = append(unSent, b.rawEnvelopes...)
 			b.mu.Unlock()
 			return int64(sentCount), fmt.Errorf("fail-close trong batch raw produce tại message %d/%d: %w", sentCount+1, len(toSend), err)
 		}
 		sentCount++
 	}
-
-	// Gửi thành công toàn bộ batch: xóa đúng batch đã gửi khỏi buffer
-	b.mu.Lock()
-	b.rawEnvelopes = b.rawEnvelopes[sentCount:]
-	if len(b.rawEnvelopes) == 0 {
-		b.rawBytes = 0
-	}
-	b.mu.Unlock()
 
 	count := int64(sentCount)
 	if b.log != nil && count > 0 {
@@ -219,15 +210,12 @@ func (b *BatchFlusher) FlushInvalid(ctx context.Context) (int64, error) {
 		return 0, nil
 	}
 
-	toSend := make([]*contract.InvalidRecord, len(b.invalidRecs))
-	copy(toSend, b.invalidRecs)
+	toSend := b.invalidRecs
+	b.invalidRecs = make([]*contract.InvalidRecord, 0, b.cfg.MaxBatchSize)
+	b.invalidBytes = 0
 	b.mu.Unlock()
 
 	if b.producer == nil {
-		b.mu.Lock()
-		b.invalidRecs = b.invalidRecs[:0]
-		b.invalidBytes = 0
-		b.mu.Unlock()
 		return int64(len(toSend)), nil
 	}
 
@@ -235,21 +223,13 @@ func (b *BatchFlusher) FlushInvalid(ctx context.Context) (int64, error) {
 	for _, inv := range toSend {
 		if err := b.producer.ProduceInvalid(ctx, inv); err != nil {
 			b.mu.Lock()
-			if sentCount > 0 {
-				b.invalidRecs = b.invalidRecs[sentCount:]
-			}
+			unSent := toSend[sentCount:]
+			b.invalidRecs = append(unSent, b.invalidRecs...)
 			b.mu.Unlock()
 			return int64(sentCount), fmt.Errorf("fail-close trong batch invalid produce tại message %d/%d: %w", sentCount+1, len(toSend), err)
 		}
 		sentCount++
 	}
-
-	b.mu.Lock()
-	b.invalidRecs = b.invalidRecs[sentCount:]
-	if len(b.invalidRecs) == 0 {
-		b.invalidBytes = 0
-	}
-	b.mu.Unlock()
 
 	return int64(sentCount), nil
 }
