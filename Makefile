@@ -63,7 +63,7 @@ up: start
 ## build-ingestor: Build Docker image go-ingestor (chứa cả dataset-sync & replay binary)
 build-ingestor:
 	@echo "[+] Build Docker image go-ingestor (2 binary: dataset-sync + replay)..."
-	docker compose build go-ingestor-sync
+	docker compose build go-ingestor-sync go-ingestor-replay
 	@echo "  ✓ Image go-ingestor đã sẵn sàng!"
 
 ## run: Stream Replay liên tục mặc định (kill_match_stats_final_0.csv)
@@ -71,7 +71,6 @@ run:
 	@echo "[+] 1. Kích hoạt Go Ingestor Replay Engine (Checkpoint Resume Mode)..."
 	@echo "    ℹ️  Nếu đã chạy trước đó, tiến trình sẽ tự động Resume từ vị trí checkpoint cuối cùng."
 	@echo "    ℹ️  Nếu muốn chạy lại từ đầu, hãy dùng: make run-reset"
-	docker compose build go-ingestor-replay
 	docker compose run --rm go-ingestor-replay
 
 ## run-kill-0: Replay chi tiết kill events từ file deaths/kill_match_stats_final_0.csv
