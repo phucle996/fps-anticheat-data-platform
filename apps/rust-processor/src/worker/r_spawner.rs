@@ -164,6 +164,7 @@ impl RWorkerSpawner {
                     warn!(
                         manifest_key = %manifest_key,
                         exit_code = ?out.status.code(),
+                        stdout = %String::from_utf8_lossy(&out.stdout).trim(),
                         stderr = %String::from_utf8_lossy(&out.stderr).trim(),
                         "Rscript Subprocess thất bại — Dữ liệu Silver/Gold không được tạo cho batch này"
                     );

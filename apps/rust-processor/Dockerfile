@@ -42,7 +42,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
 # ------------------------------------------
 FROM debian:bookworm-slim AS runner
 
-# Cài đặt R runtime, OpenSSL, ca-certificates và các thư viện hệ thống cần cho R arrow package
+# Cài đặt R runtime, OpenSSL, ca-certificates và các gói hệ thống cho R (bao gồm make/build-essential cho dependencies)
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
     apt-get update && apt-get install -y --no-install-recommends \
@@ -52,10 +52,11 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     r-cran-jsonlite \
     libcurl4-openssl-dev \
     libxml2-dev \
+    make \
     build-essential
 
-# Cài đặt R package arrow trực tiếp trong build stage của image để đảm bảo runtime có sẵn (Fail-Close)
-RUN Rscript -e 'install.packages("arrow", repos="https://cloud.r-project.org")' \
+# Cài đặt R package arrow bản pre-compiled Linux binary cực nhanh từ Posit CRAN (Fail-Close)
+RUN Rscript -e 'options(HTTPUserAgent = sprintf("R/%s R (%s)", getRversion(), paste(getRversion(), R.version$platform, R.version$arch, R.version$os))); install.packages("arrow", repos="https://packagemanager.posit.co/cran/__linux__/bookworm/latest")' \
     && Rscript -e 'stopifnot(requireNamespace("arrow", quietly=TRUE))' \
     && Rscript -e 'stopifnot(requireNamespace("jsonlite", quietly=TRUE))'
 

@@ -85,6 +85,8 @@ tryCatch({
               silver_report$batch_id, silver_report$players_count, nrow(gold_df)))
   quit(status = 0)
 }, error = function(e) {
-  cat(sprintf("[ERROR] Rscript Subprocess thất bại: %s\n", e$message))
+  message <- sprintf("[ERROR] Rscript Subprocess thất bại: %s\n", e$message)
+  cat(message, file = stderr())
+  cat(message)
   quit(status = 1)
 })
