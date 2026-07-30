@@ -28,7 +28,8 @@ class ModelTrainer:
         self.features = features or FEATURE_CONTRACT
 
     def train_pipeline(self, df: pd.DataFrame) -> Tuple[Any, Dict[str, Any]]:
-        print(f"[TRAINER] Bắt đầu tiến trình huấn luyện ML trên {len(df)} dòng dữ liệu...")
+        total_records = len(df)
+        print(f"\n[TRAINER PROGRESS 0%] Bắt đầu tiến trình huấn luyện ML trên {total_records:,} dòng dữ liệu...", flush=True)
 
         has_ground_truth = "is_suspicious" in df.columns and df["is_suspicious"].notna().any()
 
@@ -38,7 +39,7 @@ class ModelTrainer:
             return self._train_unsupervised(df)
 
     def _train_supervised(self, df: pd.DataFrame) -> Tuple[Any, Dict[str, Any]]:
-        print("[TRAINER] Phát hiện Ground Truth (is_suspicious) -> Chạy Supervised RandomForest...")
+        print("[TRAINER PROGRESS 25%] Phát hiện Ground Truth (is_suspicious) -> Khởi tạo Supervised RandomForest Classifier...", flush=True)
 
         features = self.features
         missing = [f for f in features if f not in df.columns]
@@ -47,6 +48,7 @@ class ModelTrainer:
 
         clean_df = df.dropna(subset=features + ["is_suspicious", "match_id"]).copy()
 
+        print(f"[TRAINER PROGRESS 50%] Thực hiện GroupShuffleSplit phân chia Train/Test trên {len(clean_df):,} bản ghi sạch...", flush=True)
         gss = GroupShuffleSplit(n_splits=1, test_size=0.2, random_state=42)
         train_idx, test_idx = next(gss.split(clean_df, groups=clean_df["match_id"]))
 
@@ -55,9 +57,11 @@ class ModelTrainer:
         X_test = clean_df.iloc[test_idx][features]
         y_test = clean_df.iloc[test_idx]["is_suspicious"]
 
+        print(f"[TRAINER PROGRESS 75%] Đang fit 100 cây quyết định RandomForest trên {len(X_train):,} mẫu train...", flush=True)
         model = RandomForestClassifier(n_estimators=100, max_depth=10, random_state=42)
         model.fit(X_train, y_train)
 
+        print("[TRAINER PROGRESS 90%] Đánh giá chỉ số chất lượng mô hình trên tập test...", flush=True)
         y_pred = model.predict(X_test)
         y_prob = model.predict_proba(X_test)[:, 1] if hasattr(model, "predict_proba") else y_pred
 
@@ -70,22 +74,25 @@ class ModelTrainer:
             "test_sample_count": int(len(y_test)),
         }
 
-        print(f"[TRAINER] Supervised Metrics: Precision={metrics['precision']:.3f}, Recall={metrics['recall']:.3f}, F1={metrics['f1_score']:.3f}")
+        print(f"[TRAINER PROGRESS 100%] Supervised Metrics OK: Precision={metrics['precision']:.3f}, Recall={metrics['recall']:.3f}, F1={metrics['f1_score']:.3f}", flush=True)
         return model, metrics
 
     def _train_unsupervised(self, df: pd.DataFrame) -> Tuple[Any, Dict[str, Any]]:
-        print("[TRAINER] Không có Ground Truth -> Chạy Unsupervised IsolationForest Anomaly Detection...")
+        print("[TRAINER PROGRESS 25%] Không có Ground Truth -> Chạy Unsupervised IsolationForest Anomaly Detection...", flush=True)
 
         features = self.features
         for f in features:
             if f not in df.columns:
                 df[f] = 0.0
 
+        print(f"[TRAINER PROGRESS 50%] Chuẩn hóa dữ liệu đầu vào trên {len(df):,} mẫu cho IsolationForest...", flush=True)
         clean_df = df[features].fillna(0.0).copy()
 
+        print(f"[TRAINER PROGRESS 75%] Đang fit mô hình IsolationForest Anomaly Detector (n_estimators=100)...", flush=True)
         model = IsolationForest(n_estimators=100, contamination=0.05, random_state=42)
         model.fit(clean_df)
 
+        print("[TRAINER PROGRESS 90%] Tính toán điểm bất thường (Anomaly Decision Scores)...", flush=True)
         scores = model.decision_function(clean_df)
 
         metrics = {
@@ -96,5 +103,5 @@ class ModelTrainer:
             "mean_anomaly_score": float(np.mean(scores)),
         }
 
-        print(f"[TRAINER] Unsupervised Training OK. Total Samples={metrics['total_samples']}, Mean Score={metrics['mean_anomaly_score']:.4f}")
+        print(f"[TRAINER PROGRESS 100%] Unsupervised Training OK. Total Samples={metrics['total_samples']:,}, Mean Anomaly Score={metrics['mean_anomaly_score']:.4f}", flush=True)
         return model, metrics

@@ -3,9 +3,10 @@ FROM python:3.13-slim
 
 WORKDIR /app
 
-# Sao chép và cài đặt thư viện dependencies
+# Sao chép và cài đặt thư viện dependencies với BuildKit Pip wheel cache mount
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install -r requirements.txt
 
 # Sao chép mã nguồn ứng dụng Streamlit
 COPY . .

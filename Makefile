@@ -4,7 +4,9 @@
 # ==========================================
 
 # Khai báo các phony target không liên quan tới file vật lý
-.PHONY: help init start run run-reset stop restart purge fmt test clean logs check-deps up down build-ingestor
+.PHONY: help init start run run-reset stop restart purge fmt test clean logs logs-ml check-deps up down build-ingestor \
+        run-kill-0 run-kill-1 run-kill-2 run-kill-3 run-kill-4 \
+        run-agg-0 run-agg-1 run-agg-2 run-agg-3 run-agg-4 run-parallel
 
 # Target mặc định khi gõ `make`
 .DEFAULT_GOAL := help
@@ -64,15 +66,76 @@ build-ingestor:
 	docker compose build go-ingestor-sync
 	@echo "  ✓ Image go-ingestor đã sẵn sàng!"
 
-## run: Stream Replay liên tục (Auto-Resume từ Checkpoint MinIO S3 nếu đã ngắt)
+## run: Stream Replay liên tục mặc định (kill_match_stats_final_0.csv)
 run:
 	@echo "[+] 1. Kích hoạt Go Ingestor Replay Engine (Checkpoint Resume Mode)..."
 	@echo "    ℹ️  Nếu đã chạy trước đó, tiến trình sẽ tự động Resume từ vị trí checkpoint cuối cùng."
 	@echo "    ℹ️  Nếu muốn chạy lại từ đầu, hãy dùng: make run-reset"
-	# Build image nếu chưa có hoặc code thay đổi — BuildKit cache nhanh khi không đổi dependency
 	docker compose build go-ingestor-replay
-	# Dùng image đã build sẵn — không cần golang:1.26-alpine go run, không download dependency
 	docker compose run --rm go-ingestor-replay
+
+## run-kill-0: Replay chi tiết kill events từ file deaths/kill_match_stats_final_0.csv
+run-kill-0:
+	@echo "[+] Replay Dataset Kill Events: kill_match_stats_final_0.csv..."
+	docker compose run --rm -e KAGGLE_SELECTED_FILE=kill_match_stats_final_0.csv go-ingestor-replay
+
+## run-kill-1: Replay chi tiết kill events từ file deaths/kill_match_stats_final_1.csv
+run-kill-1:
+	@echo "[+] Replay Dataset Kill Events: kill_match_stats_final_1.csv..."
+	docker compose run --rm -e KAGGLE_SELECTED_FILE=kill_match_stats_final_1.csv go-ingestor-replay
+
+## run-kill-2: Replay chi tiết kill events từ file deaths/kill_match_stats_final_2.csv
+run-kill-2:
+	@echo "[+] Replay Dataset Kill Events: kill_match_stats_final_2.csv..."
+	docker compose run --rm -e KAGGLE_SELECTED_FILE=kill_match_stats_final_2.csv go-ingestor-replay
+
+## run-kill-3: Replay chi tiết kill events từ file deaths/kill_match_stats_final_3.csv
+run-kill-3:
+	@echo "[+] Replay Dataset Kill Events: kill_match_stats_final_3.csv..."
+	docker compose run --rm -e KAGGLE_SELECTED_FILE=kill_match_stats_final_3.csv go-ingestor-replay
+
+## run-kill-4: Replay chi tiết kill events từ file deaths/kill_match_stats_final_4.csv
+run-kill-4:
+	@echo "[+] Replay Dataset Kill Events: kill_match_stats_final_4.csv..."
+	docker compose run --rm -e KAGGLE_SELECTED_FILE=kill_match_stats_final_4.csv go-ingestor-replay
+
+## run-agg-0: Replay tổng hợp trận đấu từ file aggregate/agg_match_stats_0.csv
+run-agg-0:
+	@echo "[+] Replay Aggregate Match Stats: agg_match_stats_0.csv..."
+	docker compose run --rm -e KAGGLE_SELECTED_FILE=agg_match_stats_0.csv go-ingestor-replay
+
+## run-agg-1: Replay tổng hợp trận đấu từ file aggregate/agg_match_stats_1.csv
+run-agg-1:
+	@echo "[+] Replay Aggregate Match Stats: agg_match_stats_1.csv..."
+	docker compose run --rm -e KAGGLE_SELECTED_FILE=agg_match_stats_1.csv go-ingestor-replay
+
+## run-agg-2: Replay tổng hợp trận đấu từ file aggregate/agg_match_stats_2.csv
+run-agg-2:
+	@echo "[+] Replay Aggregate Match Stats: agg_match_stats_2.csv..."
+	docker compose run --rm -e KAGGLE_SELECTED_FILE=agg_match_stats_2.csv go-ingestor-replay
+
+## run-agg-3: Replay tổng hợp trận đấu từ file aggregate/agg_match_stats_3.csv
+run-agg-3:
+	@echo "[+] Replay Aggregate Match Stats: agg_match_stats_3.csv..."
+	docker compose run --rm -e KAGGLE_SELECTED_FILE=agg_match_stats_3.csv go-ingestor-replay
+
+## run-agg-4: Replay tổng hợp trận đấu từ file aggregate/agg_match_stats_4.csv
+run-agg-4:
+	@echo "[+] Replay Aggregate Match Stats: agg_match_stats_4.csv..."
+	docker compose run --rm -e KAGGLE_SELECTED_FILE=agg_match_stats_4.csv go-ingestor-replay
+
+## run-parallel: Kích hoạt stream song song liên tục toàn bộ 5 file kill events vào Kafka (Single Container / Multi-R Workers)
+run-parallel:
+	@echo "[+] Kích hoạt Replay Multi-Stream toàn bộ 5 file kill events (deaths/kill_match_stats_final_0 -> 4)..."
+	@echo "    Toàn bộ dữ liệu được đẩy đồng thời vào 6 Kafka Partitions."
+	@echo "    Rust Processor (container duy nhất) nhận batch song song và kích hoạt Multi-R Worker Threads!"
+	docker compose run --rm -e KAGGLE_SELECTED_FILE=kill_match_stats_final_0.csv go-ingestor-replay & \
+	docker compose run --rm -e KAGGLE_SELECTED_FILE=kill_match_stats_final_1.csv go-ingestor-replay & \
+	docker compose run --rm -e KAGGLE_SELECTED_FILE=kill_match_stats_final_2.csv go-ingestor-replay & \
+	docker compose run --rm -e KAGGLE_SELECTED_FILE=kill_match_stats_final_3.csv go-ingestor-replay & \
+	docker compose run --rm -e KAGGLE_SELECTED_FILE=kill_match_stats_final_4.csv go-ingestor-replay & \
+	wait
+	@echo "  ✓ Phát song song toàn bộ 5 file kill events hoàn tất!"
 
 ## run-reset: Xóa Checkpoint cũ và phát lại toàn bộ dữ liệu từ đầu (dòng 1)
 run-reset:
@@ -143,6 +206,10 @@ clean:
 	@find . -name "*.tmp" -type f -delete
 	@echo "  - Đã hoàn tất dọn dẹp."
 
-## logs: Theo dõi log thời gian thực từ các container hạ tầng
+## logs: Theo dõi log thời gian thực từ tất cả các container hạ tầng
 logs:
 	docker compose logs -f
+
+## logs-ml: Theo dõi log thời gian thực của Python ML Worker & Inference Engine
+logs-ml:
+	docker compose logs -f ml-platform
