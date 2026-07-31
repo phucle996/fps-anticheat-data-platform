@@ -7,6 +7,7 @@
 .PHONY: help init start run run-reset stop restart purge fmt test clean logs logs-ml check-deps up down build-ingestor \
         run-kill-0 run-kill-1 run-kill-2 run-kill-3 run-kill-4 \
         run-agg-0 run-agg-1 run-agg-2 run-agg-3 run-agg-4 run-parallel
+.PHONY: sync-kill-0 sync-kill-1 sync-kill-2 sync-kill-3 sync-kill-4 bench-kill-parallel
 
 # Target mặc định khi gõ `make`
 .DEFAULT_GOAL := help
@@ -123,6 +124,31 @@ run-agg-4:
 	@echo "[+] Replay Aggregate Match Stats: agg_match_stats_4.csv..."
 	docker compose run --rm -e KAGGLE_SELECTED_FILE=agg_match_stats_4.csv go-ingestor-replay
 
+## sync-kill-0: Materialize kill events từ file deaths/kill_match_stats_final_0.csv lên MinIO
+sync-kill-0:
+	@echo "[+] Sync Dataset Kill Events: kill_match_stats_final_0.csv..."
+	docker compose run --rm -e KAGGLE_SELECTED_FILE=kill_match_stats_final_0.csv go-ingestor-sync
+
+## sync-kill-1: Materialize kill events từ file deaths/kill_match_stats_final_1.csv lên MinIO
+sync-kill-1:
+	@echo "[+] Sync Dataset Kill Events: kill_match_stats_final_1.csv..."
+	docker compose run --rm -e KAGGLE_SELECTED_FILE=kill_match_stats_final_1.csv go-ingestor-sync
+
+## sync-kill-2: Materialize kill events từ file deaths/kill_match_stats_final_2.csv lên MinIO
+sync-kill-2:
+	@echo "[+] Sync Dataset Kill Events: kill_match_stats_final_2.csv..."
+	docker compose run --rm -e KAGGLE_SELECTED_FILE=kill_match_stats_final_2.csv go-ingestor-sync
+
+## sync-kill-3: Materialize kill events từ file deaths/kill_match_stats_final_3.csv lên MinIO
+sync-kill-3:
+	@echo "[+] Sync Dataset Kill Events: kill_match_stats_final_3.csv..."
+	docker compose run --rm -e KAGGLE_SELECTED_FILE=kill_match_stats_final_3.csv go-ingestor-sync
+
+## sync-kill-4: Materialize kill events từ file deaths/kill_match_stats_final_4.csv lên MinIO
+sync-kill-4:
+	@echo "[+] Sync Dataset Kill Events: kill_match_stats_final_4.csv..."
+	docker compose run --rm -e KAGGLE_SELECTED_FILE=kill_match_stats_final_4.csv go-ingestor-sync
+
 ## run-parallel: Kích hoạt stream song song liên tục toàn bộ 5 file kill events vào Kafka (Single Container / Multi-R Workers)
 run-parallel:
 	@echo "[+] Kích hoạt Replay Multi-Stream toàn bộ 5 file kill events (deaths/kill_match_stats_final_0 -> 4)..."
@@ -135,6 +161,16 @@ run-parallel:
 	docker compose run --rm -e KAGGLE_SELECTED_FILE=kill_match_stats_final_4.csv go-ingestor-replay & \
 	wait
 	@echo "  ✓ Phát song song toàn bộ 5 file kill events hoàn tất!"
+
+## bench-kill-parallel: Sync 5 kill CSV thật trước rồi replay song song để benchmark ceiling end-to-end
+bench-kill-parallel:
+	@echo "[+] Materialize 5 kill CSV thật trước khi chạy benchmark song song..."
+	@$(MAKE) sync-kill-0
+	@$(MAKE) sync-kill-1
+	@$(MAKE) sync-kill-2
+	@$(MAKE) sync-kill-3
+	@$(MAKE) sync-kill-4
+	@$(MAKE) run-parallel
 
 ## run-reset: Xóa Checkpoint cũ và phát lại toàn bộ dữ liệu từ đầu (dòng 1)
 run-reset:

@@ -338,22 +338,59 @@ func (s *ReplayService) RunReplay(ctx context.Context, replayCfg ReplayerConfig)
 	}
 	stream.Close()
 
-	csvObj, err := s.minioCli.DownloadStream(ctx, manifest.ExtractedPath)
+	selectedFile := strings.TrimSpace(s.cfg.SelectedFile)
+	if selectedFile == "" {
+		selectedFile = strings.TrimSpace(manifest.SelectedFile)
+	}
+	if selectedFile == "" {
+		return nil, fmt.Errorf("[FAIL-CLOSE] Không xác định được selected file để replay")
+	}
+
+	cleanSlug := strings.ReplaceAll(strings.TrimSpace(manifest.DatasetSlug), "/", "-")
+	if cleanSlug == "" {
+		cleanSlug = strings.ReplaceAll(strings.TrimSpace(s.cfg.DatasetSlug), "/", "-")
+	}
+	if cleanSlug == "" {
+		return nil, fmt.Errorf("[FAIL-CLOSE] Không xác định được dataset slug để replay")
+	}
+
+	csvObjectKey := fmt.Sprintf("raw-sources/%s/%s", cleanSlug, selectedFile)
+	csvExists, err := s.minioCli.ObjectExists(ctx, csvObjectKey)
+	if err != nil {
+		return nil, fmt.Errorf("không thể kiểm tra CSV object '%s' trên MinIO: %w", csvObjectKey, err)
+	}
+	if !csvExists {
+		return nil, fmt.Errorf(
+			"[FAIL-CLOSE] Không tìm thấy CSV đã extract cho file '%s' tại '%s'. Hãy sync file này trước khi replay.",
+			selectedFile,
+			csvObjectKey,
+		)
+	}
+
+	csvObj, err := s.minioCli.DownloadStream(ctx, csvObjectKey)
 	if err != nil {
 		return nil, fmt.Errorf("không thể tải CSV stream từ MinIO: %w", err)
 	}
 	defer csvObj.Close()
 
-	csvParser, err := NewCSVParser(csvObj, manifest.SelectedFile)
+	if selectedFile != manifest.SelectedFile {
+		s.log.WithFields(logrus.Fields{
+			"manifest_selected_file": manifest.SelectedFile,
+			"replay_selected_file":   selectedFile,
+			"csv_object_key":         csvObjectKey,
+		}).Info("Replay đang override selected file theo biến môi trường để benchmark nhiều CSV song song")
+	}
+
+	csvParser, err := NewCSVParser(csvObj, selectedFile)
 	if err != nil {
 		return nil, fmt.Errorf("khởi tạo CSVParser thất bại: %w", err)
 	}
 	defer csvParser.Close()
 
 	normalizer := NewPlayerStatNormalizer(manifest.DatasetID)
-	cpStore := NewMinIOCheckpointStore(s.minioCli, manifest.ArchiveChecksum, manifest.SelectedFile)
+	cpStore := NewMinIOCheckpointStore(s.minioCli, manifest.ArchiveChecksum, selectedFile)
 
-	replayerEngine := NewReplayer(replayCfg, csvParser, normalizer, kafkaProducer, cpStore, manifest.DatasetID, manifest.SelectedFile, manifest.ArchiveChecksum, s.log)
+	replayerEngine := NewReplayer(replayCfg, csvParser, normalizer, kafkaProducer, cpStore, manifest.DatasetID, selectedFile, manifest.ArchiveChecksum, s.log)
 	stats, err := replayerEngine.Run(ctx)
 	if err != nil && !strings.Contains(err.Error(), "context canceled") {
 		return stats, fmt.Errorf("lỗi trong vòng lặp Replay Loop (Fail-Close Triggered): %w", err)
