@@ -3,8 +3,8 @@ package service_test
 import (
 	"testing"
 
-	"pubg-anti-cheat/go-ingestor/internal/contract"
-	"pubg-anti-cheat/go-ingestor/internal/service"
+	"go-ingestor/internal/contract"
+	"go-ingestor/internal/service"
 )
 
 // TestPlayerStatNormalizer_ValidRecord kiểm tra chuẩn hóa bản ghi thô hợp lệ thành EventEnvelope

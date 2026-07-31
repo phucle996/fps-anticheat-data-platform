@@ -4,7 +4,7 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	"github.com/phucle996/fps-anticheat/apps/ml-platform/go-api/internal/domain"
+	"go-api/internal/domain"
 )
 
 // Predict tiếp nhận HTTP REST request và ủy quyền xử lý cho PredictService

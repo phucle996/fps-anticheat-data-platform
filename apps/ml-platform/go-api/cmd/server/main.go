@@ -3,10 +3,10 @@ package main
 import (
 	"log"
 
-	"github.com/phucle996/fps-anticheat/apps/ml-platform/go-api/internal/client"
-	"github.com/phucle996/fps-anticheat/apps/ml-platform/go-api/internal/config"
-	"github.com/phucle996/fps-anticheat/apps/ml-platform/go-api/internal/router"
-	"github.com/phucle996/fps-anticheat/apps/ml-platform/go-api/internal/service"
+	"go-api/internal/client"
+	"go-api/internal/config"
+	"go-api/internal/router"
+	"go-api/internal/service"
 )
 
 func main() {

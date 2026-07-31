@@ -1,8 +1,8 @@
 package service
 
 import (
-	"github.com/phucle996/fps-anticheat/apps/ml-platform/go-api/internal/client"
-	"github.com/phucle996/fps-anticheat/apps/ml-platform/go-api/internal/domain"
+	"go-api/internal/client"
+	"go-api/internal/domain"
 )
 
 // PredictService quản lý nghiệp vụ dự báo nguy cơ gian lận real-time

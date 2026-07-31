@@ -5,7 +5,7 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"pubg-anti-cheat/go-ingestor/internal/contract"
+	"go-ingestor/internal/contract"
 )
 
 // IngestionResult chứa kết quả sau khi parse & normalize 1 bản ghi CSV thô

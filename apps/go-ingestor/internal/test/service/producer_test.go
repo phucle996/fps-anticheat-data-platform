@@ -6,8 +6,8 @@ import (
 	"sync"
 	"testing"
 
-	"pubg-anti-cheat/go-ingestor/internal/contract"
-	"pubg-anti-cheat/go-ingestor/internal/service"
+	"go-ingestor/internal/contract"
+	"go-ingestor/internal/service"
 )
 
 // MockProducer giả lập Kafka Producer triển khai service.Producer interface (Thread-Safe Mutex Active)

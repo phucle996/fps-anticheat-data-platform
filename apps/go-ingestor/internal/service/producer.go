@@ -10,7 +10,7 @@ import (
 	"github.com/segmentio/kafka-go/compress"
 	"github.com/sirupsen/logrus"
 
-	"pubg-anti-cheat/go-ingestor/internal/contract"
+	"go-ingestor/internal/contract"
 )
 
 // Producer định nghĩa interface phát tin nhắn vào Kafka Cluster (HA & Fail-Close)

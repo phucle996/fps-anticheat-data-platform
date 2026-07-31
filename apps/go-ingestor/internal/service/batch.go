@@ -9,7 +9,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 
-	"pubg-anti-cheat/go-ingestor/internal/contract"
+	"go-ingestor/internal/contract"
 )
 
 // BatchConfig chứa cấu hình bộ đệm Micro-Batching Flusher

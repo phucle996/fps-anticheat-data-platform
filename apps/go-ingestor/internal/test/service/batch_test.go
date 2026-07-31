@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"pubg-anti-cheat/go-ingestor/internal/contract"
-	"pubg-anti-cheat/go-ingestor/internal/service"
+	"go-ingestor/internal/contract"
+	"go-ingestor/internal/service"
 )
 
 // TestBatchBuffer_RecordCountBoundary kiểm tra trigger Flush khi bộ đệm đạt MaxBatchSize

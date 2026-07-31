@@ -7,9 +7,9 @@ import (
 	"os/signal"
 	"syscall"
 
-	"pubg-anti-cheat/go-ingestor/internal/config"
-	"pubg-anti-cheat/go-ingestor/internal/logging"
-	"pubg-anti-cheat/go-ingestor/internal/service"
+	"go-ingestor/internal/config"
+	"go-ingestor/internal/logging"
+	"go-ingestor/internal/service"
 )
 
 func main() {

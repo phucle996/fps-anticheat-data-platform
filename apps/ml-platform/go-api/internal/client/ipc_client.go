@@ -6,7 +6,7 @@ import (
 	"net"
 	"time"
 
-	"github.com/phucle996/fps-anticheat/apps/ml-platform/go-api/internal/domain"
+	"go-api/internal/domain"
 )
 
 // IPCClient quản lý kết nối IPC Client Unix Domain Socket tới Rust Inference Engine

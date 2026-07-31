@@ -11,8 +11,8 @@ import (
 
 	"github.com/sirupsen/logrus"
 
-	"pubg-anti-cheat/go-ingestor/internal/config"
-	"pubg-anti-cheat/go-ingestor/internal/contract"
+	"go-ingestor/internal/config"
+	"go-ingestor/internal/contract"
 )
 
 // ReplayerConfig định nghĩa thông số điều khiển replay và checkpointing

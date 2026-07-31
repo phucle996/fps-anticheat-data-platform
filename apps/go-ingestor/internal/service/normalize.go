@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"pubg-anti-cheat/go-ingestor/internal/contract"
+	"go-ingestor/internal/contract"
 )
 
 // Normalizer định nghĩa interface chuẩn hóa bản ghi thô thành EventEnvelope (*contract.EventEnvelope hoặc *contract.KillEventEnvelope) hoặc InvalidRecord

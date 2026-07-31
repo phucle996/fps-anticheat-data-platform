@@ -11,9 +11,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/phucle996/fps-anticheat/apps/ml-platform/go-api/internal/config"
-	"github.com/phucle996/fps-anticheat/apps/ml-platform/go-api/internal/handler"
-	"github.com/phucle996/fps-anticheat/apps/ml-platform/go-api/internal/ipc"
+	"go-api/internal/config"
+	"go-api/internal/handler"
+	"go-api/internal/ipc"
 )
 
 // TestConfigFailClose kiểm tra cơ chế Fail-Close 100% khi thiếu biến môi trường

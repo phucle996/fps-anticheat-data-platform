@@ -15,7 +15,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 
-	"pubg-anti-cheat/go-ingestor/internal/config"
+	"go-ingestor/internal/config"
 )
 
 // DatasetManifest định nghĩa cấu trúc lưu thông tin dataset metadata trên MinIO S3

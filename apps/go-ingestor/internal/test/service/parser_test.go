@@ -6,7 +6,7 @@ import (
 	"os"
 	"testing"
 
-	"pubg-anti-cheat/go-ingestor/internal/service"
+	"go-ingestor/internal/service"
 )
 
 // TestCSVParser_ValidStream kiểm tra đọc thành công dòng qua dòng từ CSV hợp lệ

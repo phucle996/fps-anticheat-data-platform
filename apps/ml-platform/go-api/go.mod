@@ -1,4 +1,5 @@
-module github.com/phucle996/fps-anticheat/apps/ml-platform/go-api
+// Module name ngắn gọn, rõ ràng theo đúng yêu cầu dự án
+module go-api
 
 go 1.26
 

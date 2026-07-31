@@ -7,9 +7,9 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/phucle996/fps-anticheat/apps/ml-platform/go-api/internal/client"
-	"github.com/phucle996/fps-anticheat/apps/ml-platform/go-api/internal/config"
-	"github.com/phucle996/fps-anticheat/apps/ml-platform/go-api/internal/domain"
+	"go-api/internal/client"
+	"go-api/internal/config"
+	"go-api/internal/domain"
 )
 
 // SummaryService quản lý nghiệp vụ tổng hợp dữ liệu KPI từ MinIO S3 Data Lake

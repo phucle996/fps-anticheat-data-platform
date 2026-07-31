@@ -9,7 +9,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 
-	"pubg-anti-cheat/go-ingestor/internal/service"
+	"go-ingestor/internal/service"
 )
 
 // TestReplayer_DryRunAndLimit kiểm tra Replay Loop với các tùy chọn DryRun, StartRecord và Limit

@@ -1,8 +1,8 @@
 package handler
 
 import (
-	"github.com/phucle996/fps-anticheat/apps/ml-platform/go-api/internal/config"
-	"github.com/phucle996/fps-anticheat/apps/ml-platform/go-api/internal/service"
+	"go-api/internal/config"
+	"go-api/internal/service"
 )
 
 // Handler quản lý HTTP Transport Layer cho Gin Web Framework

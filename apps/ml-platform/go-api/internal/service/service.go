@@ -1,8 +1,8 @@
 package service
 
 import (
-	"github.com/phucle996/fps-anticheat/apps/ml-platform/go-api/internal/client"
-	"github.com/phucle996/fps-anticheat/apps/ml-platform/go-api/internal/config"
+	"go-api/internal/client"
+	"go-api/internal/config"
 )
 
 // ServiceContainer chứa tập hợp tất cả các dịch vụ Business Logic của Go API Gateway

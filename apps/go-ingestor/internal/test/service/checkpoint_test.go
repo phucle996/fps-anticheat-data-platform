@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"pubg-anti-cheat/go-ingestor/internal/service"
+	"go-ingestor/internal/service"
 )
 
 // MockCheckpointStore giả lập CheckpointStore phục vụ Unit Test

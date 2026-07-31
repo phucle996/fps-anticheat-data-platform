@@ -4,7 +4,7 @@ import (
 	"os"
 	"testing"
 
-	"pubg-anti-cheat/go-ingestor/internal/config"
+	"go-ingestor/internal/config"
 )
 
 // TestConfig_FailCloseWhenMissingEnv kiểm tra quy tắc Fail-Close ngắt chương trình khi thiếu biến môi trường
