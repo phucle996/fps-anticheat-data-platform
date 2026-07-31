@@ -148,6 +148,8 @@ class ModelTrainer:
             "mean_anomaly_score": float(np.mean(scores)),
         }
 
+        # In log tiến độ hoàn tất huấn luyện Unsupervised IsolationForest + XGBoost Model
         print(f"[TRAINER PROGRESS 100%] Unsupervised Training OK. Total Samples={metrics['total_samples']:,}, Mean Anomaly Score={metrics['mean_anomaly_score']:.4f}", flush=True)
-        return probability_model, metricsSS 100%] Unsupervised Training OK. Total Samples={metrics['total_samples']:,}, Mean Anomaly Score={metrics['mean_anomaly_score']:.4f}", flush=True)
+
+        # Trả về mô hình xác suất đã huấn luyện cùng chỉ số metrics tương ứng
         return probability_model, metrics
