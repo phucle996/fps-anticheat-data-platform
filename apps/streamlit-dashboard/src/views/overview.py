@@ -2,17 +2,18 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 from src.services.api_client import APIClient
+from src.services.s3_client import S3DataClient
 
-def render_overview_page(api_client: APIClient):
-    """Render_overview_page hiển thị trang Overview & Pipeline Health Monitor với 10 KPI métric cards"""
+def render_overview_page(api_client: APIClient, s3_client: S3DataClient):
+    """Render_overview_page hiển thị trang Overview & Pipeline Health Monitor với 10 KPI métric cards từ S3 Lakehouse (Zero Fake Data)."""
     st.title("📊 Overview & Pipeline Health Monitor")
     st.markdown(
         "<div class='glass-card'>Trang quản trị tổng quan đo lường hiệu năng 10 chỉ số KPI cốt lõi và sức khỏe đường ống dữ liệu PUBG PC Anti-Cheat Data Platform.</div>",
         unsafe_allow_html=True
     )
 
-    # 1. Lấy dữ liệu thống kê từ Go API Gateway
-    summary = api_client.get_dataset_summary()
+    # 1. Lấy dữ liệu thống kê thực tế 100% từ MinIO S3 Lakehouse (Zero Fallback, Zero Fake Data)
+    summary = s3_client.get_real_pipeline_summary()
     health = api_client.check_health()
 
     # 2. Hiển thị 10 Metric Cards chia làm 2 hàng

@@ -6,6 +6,7 @@ from src.views.overview import render_overview_page
 from src.views.preprocessing import render_preprocessing_page
 from src.views.player_analysis import render_player_analysis_page
 from src.views.risk_analysis import render_risk_analysis_page
+from src.views.model_registry import render_model_registry_page
 
 # Cấu hình Trang Streamlit & Theme Cyberpunk Dark Mode
 st.set_page_config(
@@ -69,7 +70,8 @@ page = st.sidebar.radio(
         "📊 Overview & Pipeline Health",
         "🧹 Preprocessing Before vs After",
         "👤 Player Analysis & Lobby Comparison",
-        "🎯 Risk Analysis & Prediction Explorer"
+        "🎯 Risk Analysis & Prediction Explorer",
+        "🤖 ML Model Registry & Active Model",
     ]
 )
 
@@ -85,7 +87,7 @@ st.sidebar.caption("⚡ FPS Anti-Cheat Data Platform v1.0")
 
 # 3. Router nội dung trang
 if page == "📊 Overview & Pipeline Health":
-    render_overview_page(api_client)
+    render_overview_page(api_client, s3_client)
 
 elif page == "🧹 Preprocessing Before vs After":
     render_preprocessing_page(api_client, s3_client)
@@ -95,3 +97,6 @@ elif page == "👤 Player Analysis & Lobby Comparison":
 
 elif page == "🎯 Risk Analysis & Prediction Explorer":
     render_risk_analysis_page(api_client, s3_client)
+
+elif page == "🤖 ML Model Registry & Active Model":
+    render_model_registry_page(api_client, s3_client)

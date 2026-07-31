@@ -151,6 +151,14 @@ func (s *Server) handleDatasetSummary(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Đọc động phiên bản mô hình ML đang kích hoạt từ IPC Client (Zero Fallback)
+	modelVersion := "UNAVAILABLE"
+	if s.ipcClient != nil {
+		if activeVer := s.ipcClient.GetActiveModelVersion(); activeVer != "" {
+			modelVersion = activeVer
+		}
+	}
+
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"status":               "ok",
 		"total_raw_records":    totalRaw,
@@ -161,8 +169,8 @@ func (s *Server) handleDatasetSummary(w http.ResponseWriter, r *http.Request) {
 		"invalid_records":      invalidRecords,
 		"prediction_count":     predictionCount,
 		"high_risk_count":      highRiskCount,
-		"model_version":        "v1.0-rf",
-		"feature_version":      "v1.0",
+		"model_version":        modelVersion,
+		"feature_version":      "kill-event-player-match-v1",
 	})
 }
 
