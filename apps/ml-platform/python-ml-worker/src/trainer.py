@@ -39,28 +39,23 @@ class ModelTrainer:
 
         if has_ground_truth:
             return self._train_supervised(df)
-        else    def _build_classifier(self) -> Tuple[Any, str]:
-        """Tự động khởi tạo mô hình phân loại: ưu tiên XGBoost GPU (CUDA), fallback về RandomForest CPU nếu không có GPU"""
-        try:
-            import xgboost as xgb
-            # Thử khởi tạo XGBoost Classifier chạy trên NVIDIA GPU với CUDA acceleration
-            model = xgb.XGBClassifier(
-                n_estimators=100,
-                max_depth=10,
-                random_state=42,
-                tree_method="hist",
-                device="cuda",
-                eval_metric="logloss"
-            )
-            print("[GPU ACCELERATION] Đã khởi tạo thành công mô hình XGBoost Classifier trên NVIDIA GPU (CUDA)...", flush=True)
-            return model, "XGBClassifier (CUDA GPU)"
-        except Exception as err:
-            # Fallback an toàn về CPU nếu node Cloud không có GPU hoặc lỗi driver CUDA
-            print(f"[CPU FALLBACK] Không thể bật GPU CUDA ({err}), tự động fallback về RandomForest CPU...", flush=True)
-            model = RandomForestClassifier(
-                n_estimators=100, max_depth=10, random_state=42, n_jobs=-1
-            )
-            return model, "RandomForestClassifier (CPU)"
+        else:
+            return self._train_unsupervised(df)
+
+    def _build_classifier(self) -> Tuple[Any, str]:
+        """Khởi tạo mô hình phân loại XGBoost GPU (CUDA). Yêu cầu nghiêm ngặt GPU acceleration, không fallback CPU."""
+        import xgboost as xgb
+        # Khởi tạo XGBoost Classifier bắt buộc chạy trên NVIDIA GPU với CUDA acceleration
+        model = xgb.XGBClassifier(
+            n_estimators=100,
+            max_depth=10,
+            random_state=42,
+            tree_method="hist",
+            device="cuda",
+            eval_metric="logloss"
+        )
+        print("[GPU ACCELERATION REQUIRED] Khởi tạo thành công mô hình XGBoost Classifier trên NVIDIA GPU (CUDA)...", flush=True)
+        return model, "XGBClassifier (CUDA GPU)"
 
     def _train_supervised(self, df: pd.DataFrame) -> Tuple[Any, Dict[str, Any]]:
         print("[TRAINER PROGRESS 25%] Phát hiện Ground Truth (is_suspicious) -> Khởi tạo Supervised Classifier...", flush=True)
