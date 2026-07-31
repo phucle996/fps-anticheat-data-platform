@@ -18,6 +18,9 @@ pub use ingest::{
 pub use storage::{BatchManifest, MinioWriter, PartitionOffsetMetadata};
 pub use transform::{
     ArrowConverter, DeduplicateOutcome, EventDeduplicator, EventValidator, InvalidEnvelopeRecord,
-    ParquetSerializer, ValidationOutcome,
+    NativeGoldFeatureGenerator, NativeSilverPreprocessor, ParquetSerializer, ValidationOutcome,
 };
-pub use worker::{CircuitBreakerState, RDynamicWorkerPool, RWorkerSpawner, ResourceCircuitBreaker};
+pub use worker::{
+    CircuitBreakerState, DynamicWorkerPool, NativeWorkerResult, NativeWorkerSpawner,
+    ResourceCircuitBreaker,
+};

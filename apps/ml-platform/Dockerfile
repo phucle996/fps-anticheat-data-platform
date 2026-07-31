@@ -7,9 +7,18 @@
 # -----------------------------------------------------------------------------
 # Stage 1: Build Rust Inference Engine Binary
 # -----------------------------------------------------------------------------
-FROM rust:1.88-alpine AS rust-builder
+# Sử dụng rust:1.88-slim-trixie (Debian 13 Trixie glibc 2.39+) để đáp ứng MSRV (rustc >= 1.88) và đầy đủ C23 symbols (__isoc23_strtol) của ONNX Runtime prebuilt binaries
+FROM rust:1.88-slim-trixie AS rust-builder
 WORKDIR /app
-RUN apk add --no-cache musl-dev g++ make pkgconfig openssl-dev
+
+# Cài đặt build tools và C dependencies (pkg-config, libssl-dev, cmake, build-essential) với Apt cache mount
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
+    apt-get update && apt-get install -y --no-install-recommends \
+    pkg-config \
+    libssl-dev \
+    cmake \
+    build-essential
 
 # Copy Cargo metadata trước để cache dependencies
 COPY rust-inference/Cargo.toml rust-inference/Cargo.lock ./
@@ -53,7 +62,8 @@ RUN --mount=type=cache,target=/root/go/pkg/mod \
 # -----------------------------------------------------------------------------
 # Stage 3: Unified ML Platform Composite Runtime Container
 # -----------------------------------------------------------------------------
-FROM python:3.13-slim
+# Sử dụng python:3.13-slim-trixie (Debian 13 Trixie glibc 2.39+) để đồng bộ phiên bản glibc runtime với Stage 1
+FROM python:3.13-slim-trixie
 WORKDIR /app
 
 # Cài đặt system packages với Apt cache mount

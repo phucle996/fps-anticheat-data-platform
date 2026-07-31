@@ -1,4 +1,0 @@
-"match_id","player_id","kills","damage_dealt","headshot_kills","win_place_perc","total_distance","headshot_ratio","kills_per_minute","damage_per_minute","damage_per_kill","movement_per_minute","performance_versus_lobby","max_kill_distance_m","avg_burst_kill_interval_ms","spatial_teleport_score","headshot_streak_count","feature_version","created_at"
-"match_100","player_A",10,1200,8,1,3600,0.8,0.5,60,120,180,575,750,1500,0.05,8,"v1.0","2026-07-28T12:46:15Z"
-"match_100","player_B",0,50,0,0.1,200,0,0,20,50,80,-575,80,0,0.05,0,"v1.0","2026-07-28T12:46:15Z"
-"match_101","player_C",4,400,1,0.5,800,0.25,0.4,40,100,80,0,380,3750,0.05,1,"v1.0","2026-07-28T12:46:15Z"

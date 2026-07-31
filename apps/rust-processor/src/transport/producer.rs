@@ -1,6 +1,6 @@
 use crate::config::Config;
 use crate::error::{AppError, Result};
-use crate::worker::RWorkerResult;
+use crate::worker::NativeWorkerResult;
 use rdkafka::config::ClientConfig;
 use rdkafka::producer::{FutureProducer, FutureRecord};
 use rdkafka::util::Timeout;
@@ -56,7 +56,7 @@ impl KafkaEventProducer {
     pub async fn publish_gold_ready(
         &self,
         batch_id: &str,
-        result: &RWorkerResult,
+        result: &NativeWorkerResult,
     ) -> Result<usize> {
         let gold_artifacts: Vec<_> = result
             .artifacts
