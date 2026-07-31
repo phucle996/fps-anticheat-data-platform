@@ -132,9 +132,13 @@ class ModelTrainer:
         pseudo_labels = np.zeros(len(clean_df), dtype=np.int64)
         pseudo_labels[anomaly_indices] = 1
 
+        # Chuẩn hóa tên cột DataFrame sang dạng f0, f1, f2... theo yêu cầu chuẩn của onnxmltools convert_xgboost
+        clean_df_f = clean_df.copy()
+        clean_df_f.columns = [f"f{i}" for i in range(len(features))]
+
         probability_model, model_name = self._build_classifier()
-        probability_model.fit(clean_df, pseudo_labels)
-        pseudo_predictions = probability_model.predict(clean_df)
+        probability_model.fit(clean_df_f, pseudo_labels)
+        pseudo_predictions = probability_model.predict(clean_df_f)
 
         metrics = {
             "mode": "unsupervised",

@@ -119,8 +119,11 @@ class ONNXExporter:
                 from onnxmltools.convert.common.data_types import FloatTensorType
 
                 print(f"[ONNX EXPORTER] Đang chuyển đổi mô hình XGBoost ({model_type_name}) sang ONNX...")
+                # Quy chuẩn feature_names của XGBoost Booster về dạng f0, f1, f2... theo đúng định dạng onnxmltools yêu cầu
+                if hasattr(model, "get_booster"):
+                    model.get_booster().feature_names = [f"f{i}" for i in range(len(feature_cols))]
+
                 initial_type = [("float_input", FloatTensorType([None, len(feature_cols)]))]
-                # convert_xgboost của onnxmltools không nhận tham số options (options chỉ dành riêng cho skl2onnx)
                 onnx_model = convert_xgboost(
                     model,
                     initial_types=initial_type,
