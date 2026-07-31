@@ -57,7 +57,7 @@ RUN --mount=type=cache,target=/root/go/pkg/mod \
 COPY go-api/ ./
 RUN --mount=type=cache,target=/root/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
-    CGO_ENABLED=0 GOOS=linux go build -ldflags="-w -s" -o /app/go-api ./main.go
+    CGO_ENABLED=0 GOOS=linux go build -ldflags="-w -s" -o /app/go-api ./cmd/server/main.go
 
 # -----------------------------------------------------------------------------
 # Stage 3: Unified ML Platform Composite Runtime Container

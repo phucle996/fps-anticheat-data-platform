@@ -2,19 +2,19 @@ package handler
 
 import (
 	"github.com/phucle996/fps-anticheat/apps/ml-platform/go-api/internal/config"
-	"github.com/phucle996/fps-anticheat/apps/ml-platform/go-api/internal/ipc"
+	"github.com/phucle996/fps-anticheat/apps/ml-platform/go-api/internal/service"
 )
 
-// Handler quản lý tập trung các dependencies cho tất cả HTTP Handlers
+// Handler quản lý HTTP Transport Layer cho Gin Web Framework
 type Handler struct {
-	cfg       *config.Config
-	ipcClient *ipc.Client
+	cfg      *config.Config
+	services *service.ServiceContainer
 }
 
-// NewHandler khởi tạo Handler chứa Config và IPC Client
-func NewHandler(cfg *config.Config, ipcClient *ipc.Client) *Handler {
+// NewHandler khởi tạo Transport Handler chứa Config và Services Container
+func NewHandler(cfg *config.Config, services *service.ServiceContainer) *Handler {
 	return &Handler{
-		cfg:       cfg,
-		ipcClient: ipcClient,
+		cfg:      cfg,
+		services: services,
 	}
 }

@@ -3,9 +3,10 @@ package main
 import (
 	"log"
 
+	"github.com/phucle996/fps-anticheat/apps/ml-platform/go-api/internal/client"
 	"github.com/phucle996/fps-anticheat/apps/ml-platform/go-api/internal/config"
-	"github.com/phucle996/fps-anticheat/apps/ml-platform/go-api/internal/ipc"
 	"github.com/phucle996/fps-anticheat/apps/ml-platform/go-api/internal/router"
+	"github.com/phucle996/fps-anticheat/apps/ml-platform/go-api/internal/service"
 )
 
 func main() {
@@ -18,10 +19,13 @@ func main() {
 	}
 
 	// 2. Khởi tạo IPC Client kết nối Unix Domain Socket với Rust Engine
-	ipcClient := ipc.NewClient(cfg.IPCSocketPath)
+	ipcClient := client.NewIPCClient(cfg.IPCSocketPath)
 
-	// 3. Khởi tạo Gin Web Framework Engine và gắn routes
-	r := router.SetupRouter(cfg, ipcClient)
+	// 3. Khởi tạo Service Container (Business Logic Layer)
+	services := service.NewServiceContainer(cfg, ipcClient)
+
+	// 4. Khởi tạo Gin Web Framework Engine và gắn routes
+	r := router.SetupRouter(cfg, services)
 
 	addr := ":" + cfg.HTTPPort
 	log.Printf("Go API Gateway đã khởi động thành công và sẵn sàng lắng nghe tại %s (Socket UDS IPC: %s)", addr, cfg.IPCSocketPath)
