@@ -1,9 +1,13 @@
+import warnings
 import numpy as np
 import pandas as pd
 from typing import Tuple, Dict, Any
 from sklearn.model_selection import GroupShuffleSplit
 from sklearn.ensemble import RandomForestClassifier, IsolationForest
 from sklearn.metrics import precision_score, recall_score, f1_score, average_precision_score
+
+# Ẩn các cảnh báo lặt vặt (UserWarning) của XGBoost khi truyền CPU DataFrame cho CUDA GPU Booster
+warnings.filterwarnings("ignore", category=UserWarning, module="xgboost")
 
 # Feature Contract khớp 100% với R Gold Feature Engine
 FEATURE_CONTRACT = [

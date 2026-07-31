@@ -1,9 +1,13 @@
+import warnings
 import hashlib
 import json
 import signal
 import time
 from datetime import datetime, timezone
 from threading import Event
+
+# Ẩn các cảnh báo DeprecationWarning lặt vặt từ thư viện kafka-python
+warnings.filterwarnings("ignore", category=DeprecationWarning)
 
 from src.config import Config
 from src.onnx_exporter import ONNXExporter
