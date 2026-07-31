@@ -51,6 +51,11 @@ Evidence:
    - Fix: log `compression=gzip`.
    - Note: the currently running replay Docker image still logs `zstd` until the image is rebuilt.
 
+6. ML training worker failed closed on the final Gold batch, but succeeded on a larger real Gold batch.
+   - Symptom: the newest Gold artifact had only 18 rows after validation, so `ModelTrainer` rejected it with the documented minimum-record guard.
+   - Verification: a real Gold batch with 70 rows trained successfully, exported a valid ONNX bundle, uploaded it to `s3://pubg-models/pubg-risk/versions/v-7a1d21ba29420e58/`, and produced `ML_E2E_RESULT`.
+   - Interpretation: the low-row failure is expected fail-close behavior, not a bug.
+
 ## Findings Still To Clean Up
 
 1. Compose `pubg-rust-processor` service was running a stale image.
@@ -77,7 +82,13 @@ Evidence:
    - Observed warnings: `pubg-platform-net`, `pubg_kafka_data`, and `pubg_minio_data` were created under project `compose`, while current project is `fps-anticheat`.
    - Suggested cleanup: mark these resources as `external: true` or recreate them under one consistent compose project name.
 
-6. Rust processor still emits unused/dead-code warnings.
+6. ML platform compose image is stale relative to current source and env contract.
+   - Observed failure in the running `pubg-ml-platform` container: it was still using an old image layout and failed on the first `dataset.gold.ready` event with a double `s3://` prefix before the source-side storage fix.
+   - Current source now expects `MODEL_ROOT`, `POLICY_PATH`, `INFERENCE_SESSION_POOL_SIZE`, `MODEL_RELOAD_INTERVAL_SECONDS`, `IPC_MAX_CONCURRENCY`, `IPC_MAX_REQUEST_BYTES`, `KAFKA_TOPIC_ML_DLQ`, `KAFKA_ML_GROUP_ID`, and `ML_MAX_RETRIES`.
+   - Cleanup performed: `apps/ml-platform/.env`, `apps/ml-platform/Dockerfile`, `apps/ml-platform/config/ml-risk-policy.yml`, `apps/ml-platform/python-ml-worker/src/onnx_exporter.py`, and the Python ML worker test fixture were aligned to the current contract.
+   - Required next step: rebuild the `ml-platform` service so the runtime matches the source tree.
+
+7. Rust processor still emits unused/dead-code warnings.
    - Tests pass, but `cargo test` and builder-stage compile report 12 warnings.
    - Suggested cleanup: remove stale exports/fields or intentionally allow them with comments where they are future API surface.
 
