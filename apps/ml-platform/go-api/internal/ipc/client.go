@@ -83,3 +83,17 @@ func (c *Client) Predict(req *PredictRequest) (*PredictResponse, error) {
 
 	return &resp, nil
 }
+
+// GetActiveModelVersion thực hiện truy vấn phiên bản mô hình ML đang kích hoạt từ Rust Engine qua IPC
+func (c *Client) GetActiveModelVersion() string {
+	resp, err := c.Predict(&PredictRequest{
+		Op:       "predict",
+		MatchID:  "health_check",
+		PlayerID: "health_check",
+		Features: []float32{0, 0, 0, 0, 0},
+	})
+	if err == nil && resp != nil && resp.ModelVersion != "" && resp.ModelVersion != "UNAVAILABLE" {
+		return resp.ModelVersion
+	}
+	return "UNAVAILABLE"
+}

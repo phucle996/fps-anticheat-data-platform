@@ -2,11 +2,10 @@ package main
 
 import (
 	"log"
-	"net/http"
 
 	"github.com/phucle996/fps-anticheat/apps/ml-platform/go-api/internal/config"
-	"github.com/phucle996/fps-anticheat/apps/ml-platform/go-api/internal/handler"
 	"github.com/phucle996/fps-anticheat/apps/ml-platform/go-api/internal/ipc"
+	"github.com/phucle996/fps-anticheat/apps/ml-platform/go-api/internal/router"
 )
 
 func main() {
@@ -18,18 +17,16 @@ func main() {
 		log.Fatalf("[FAIL-CLOSE] Không thể khởi chạy Go API Gateway: %v", err)
 	}
 
-	// 2. Khởi tạo IPC Client kết nối Unix Domain Socket
+	// 2. Khởi tạo IPC Client kết nối Unix Domain Socket với Rust Engine
 	ipcClient := ipc.NewClient(cfg.IPCSocketPath)
 
-	// 3. Khởi tạo REST Server Router
-	server := handler.NewServer(cfg, ipcClient)
-	mux := http.NewServeMux()
-	server.RegisterRoutes(mux)
+	// 3. Khởi tạo Gin Web Framework Engine và gắn routes
+	r := router.SetupRouter(cfg, ipcClient)
 
 	addr := ":" + cfg.HTTPPort
 	log.Printf("Go API Gateway đã khởi động thành công và sẵn sàng lắng nghe tại %s (Socket UDS IPC: %s)", addr, cfg.IPCSocketPath)
 
-	if err := http.ListenAndServe(addr, mux); err != nil {
-		log.Fatalf("Lỗi lắng nghe HTTP Server: %v", err)
+	if err := r.Run(addr); err != nil {
+		log.Fatalf("Lỗi lắng nghe Gin HTTP Server: %v", err)
 	}
 }
