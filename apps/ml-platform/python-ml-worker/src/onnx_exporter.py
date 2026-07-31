@@ -25,7 +25,7 @@ class ONNXExporter:
         feature_schema = {
             "model_name": "pubg-risk",
             "model_version": version,
-            "feature_version": "player-match-feature-v1",
+            "feature_version": "kill-event-player-match-v1",
             "input_dtype": "float32",
             "input_shape": ["batch_size", len(features_used)],
             "features": features_used

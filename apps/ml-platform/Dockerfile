@@ -72,6 +72,7 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 COPY --from=rust-builder /app/rust-inference-bin /usr/local/bin/rust-inference
 COPY --from=go-builder /app/go-api /usr/local/bin/go-api
 COPY python-ml-worker/src ./python-ml-worker/src
+COPY config ./config
 
 EXPOSE 8081
 

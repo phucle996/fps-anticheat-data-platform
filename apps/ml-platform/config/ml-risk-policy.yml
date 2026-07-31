@@ -1,0 +1,22 @@
+version: "v1.0-rf-policy"
+default_action: "CLEAR"
+rules:
+  - name: "watch_low_risk"
+    min_score: 0.30
+    max_score: 0.60
+    action: "WATCHLIST"
+    priority: "MEDIUM"
+    reason: "Mô hình phát hiện rủi ro tăng, cần theo dõi thêm"
+  - name: "escalate_high_risk"
+    min_score: 0.60
+    max_score: 0.80
+    action: "ESCALATE_TO_MODERATOR"
+    priority: "HIGH"
+    reason: "Rủi ro đủ cao để chuyển điều tra viên xem xét"
+  - name: "suspend_critical_risk"
+    min_score: 0.80
+    max_score: 1.01
+    min_headshot_zscore: 2.5
+    action: "SUSPEND_ACCOUNT"
+    priority: "CRITICAL"
+    reason: "Rủi ro cực cao và bằng chứng headshot bất thường"
