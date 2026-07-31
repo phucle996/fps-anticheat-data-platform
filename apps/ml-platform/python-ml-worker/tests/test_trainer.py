@@ -1,70 +1,95 @@
 import os
-import pytest
+
+import numpy as np
 import pandas as pd
+import pytest
+
 from src.config import Config
-from src.storage import StorageClient
-from src.trainer import ModelTrainer, FEATURE_CONTRACT
 from src.onnx_exporter import ONNXExporter
+from src.storage import StorageClient
+from src.trainer import FEATURE_CONTRACT, ModelTrainer
 
-@pytest.fixture(autouse=True)
-def setup_env():
-    """Thiết lập các biến môi trường bắt buộc phục vụ kiểm thử (Fail-Close Enforced)"""
-    os.environ["KAFKA_BROKERS"] = "localhost:9092"
-    os.environ["KAFKA_TOPIC_GOLD"] = "pubg.v1.dataset.gold.ready"
-    os.environ["KAFKA_TOPIC_MODEL"] = "pubg.v1.ml.model.ready"
-    os.environ["MINIO_ENDPOINT"] = "http://localhost:9000"
-    os.environ["MINIO_BUCKET_DATA"] = "fps-anticheat-datalake"
-    os.environ["MINIO_BUCKET_MODEL"] = "pubg-models"
-    os.environ["MINIO_ACCESS_KEY"] = "minioadmin"
-    os.environ["MINIO_SECRET_KEY"] = "minioadmin"
 
-def test_trainer_pipeline():
-    """Kiểm thử pipeline huấn luyện ML và đánh giá các chỉ số"""
-    config = Config.from_env()
-    storage = StorageClient(config)
-    
-    # Nạp dữ liệu Gold DataFrame
-    df = storage.load_gold_dataset()
-    assert len(df) > 0
-    assert all(feat in df.columns for feat in FEATURE_CONTRACT)
+@pytest.fixture
+def config_env(monkeypatch):
+    values = {
+        "KAFKA_BROKERS": "localhost:9092",
+        "KAFKA_TOPIC_GOLD": "pubg.v1.dataset.gold.ready",
+        "KAFKA_TOPIC_MODEL": "pubg.v1.ml.model.ready",
+        "KAFKA_TOPIC_ML_DLQ": "pubg.v1.ml.dlq",
+        "KAFKA_ML_GROUP_ID": "ml-worker-test",
+        "MINIO_ENDPOINT": "http://localhost:9000",
+        "MINIO_BUCKET_DATA": "fps-anticheat-datalake",
+        "MINIO_BUCKET_MODEL": "pubg-models",
+        "MINIO_ACCESS_KEY": "minioadmin",
+        "MINIO_SECRET_KEY": "minioadmin",
+        "MODEL_ROOT": "/tmp/fps-anticheat-test-models",
+        "ML_MAX_RETRIES": "3",
+    }
+    for key, value in values.items():
+        monkeypatch.setenv(key, value)
 
-    # Kích hoạt huấn luyện
-    trainer = ModelTrainer()
-    model, metrics = trainer.train_pipeline(df)
 
-    # Đảm bảo các chỉ số đánh giá hợp lệ
-    assert metrics["model_name"] == "RandomForestClassifier"
-    assert "pr_auc" in metrics
-    assert "f1_score" in metrics
-    assert metrics["pr_auc"] >= 0.0
-    assert metrics["f1_score"] >= 0.0
+def sample_gold(rows=80):
+    rng = np.random.default_rng(42)
+    return pd.DataFrame(
+        {
+            "match_id": [f"match-{index // 8}" for index in range(rows)],
+            "player_id": [f"player-{index}" for index in range(rows)],
+            "kills": rng.integers(0, 12, rows),
+            "minimum_kill_interval_seconds": rng.uniform(0, 999, rows),
+            "median_kill_distance_coordinate_units": rng.uniform(0, 500, rows),
+            "short_kill_interval_count": rng.integers(0, 6, rows),
+            "unique_weapons_used": rng.integers(0, 8, rows),
+        }
+    )
 
-def test_onnx_export_bundle():
-    """Kiểm thử đóng gói ONNX Model Bundle và các manifest metadata"""
-    config = Config.from_env()
-    storage = StorageClient(config)
-    
-    df = storage.load_gold_dataset()
-    trainer = ModelTrainer()
-    model, metrics = trainer.train_pipeline(df)
 
-    # Đóng gói ONNX bundle
-    bundle = ONNXExporter.export_bundle(model, metrics, version="v1_test")
-
-    # Đảm bảo có đầy đủ 6 file thành phần trong bundle
-    assert "model.onnx" in bundle
-    assert "feature_schema.json" in bundle
-    assert "threshold_policy.json" in bundle
-    assert "metrics.json" in bundle
-    assert "training_manifest.json" in bundle
-    assert "checksums.sha256" in bundle
-
-    # Kiểm tra kích thước file không rỗng
-    assert len(bundle["model.onnx"]) > 0
-    assert len(bundle["feature_schema.json"]) > 0
-
-def test_config_fail_close():
-    """Kiểm thử cơ chế Fail-Close: Ném ra ValueError khi thiếu biến môi trường"""
-    del os.environ["KAFKA_BROKERS"]
+def test_config_fail_close(config_env, monkeypatch):
+    monkeypatch.delenv("KAFKA_BROKERS")
     with pytest.raises(ValueError, match="FAIL-CLOSE TRIGGERED"):
         Config.from_env()
+
+
+def test_trainer_pipeline_is_deterministic_and_contract_complete(config_env):
+    model, metrics = ModelTrainer().train_pipeline(sample_gold())
+    assert metrics["model_name"] == "RandomForestClassifier"
+    assert metrics["features_used"] == FEATURE_CONTRACT
+    assert metrics["pseudo_anomaly_count"] > 0
+    assert set(model.classes_) == {0, 1}
+
+
+def test_onnx_export_bundle_contains_valid_model(config_env):
+    model, metrics = ModelTrainer().train_pipeline(sample_gold())
+    bundle = ONNXExporter.export_bundle(model, metrics, version="v-test")
+    assert {
+        "model.onnx",
+        "feature_schema.json",
+        "threshold_policy.json",
+        "training_manifest.json",
+        "metrics.json",
+        "checksums.sha256",
+    } <= set(bundle)
+
+    import onnx
+    import onnxruntime as ort
+
+    onnx_model = onnx.load_from_string(bundle["model.onnx"])
+    onnx.checker.check_model(onnx_model)
+    session = ort.InferenceSession(bundle["model.onnx"], providers=["CPUExecutionProvider"])
+    output = session.run(
+        None, {session.get_inputs()[0].name: sample_gold()[FEATURE_CONTRACT].iloc[:2].to_numpy(dtype=np.float32)}
+    )
+    assert output[0].shape == (2,)
+    assert output[1].shape == (2, 2)
+
+
+def test_gold_uri_security_boundary(config_env):
+    storage = StorageClient(Config.from_env())
+    assert storage._resolve_gold_object(
+        "s3://fps-anticheat-datalake/gold/player-match-features/features.parquet"
+    )[1].startswith("gold/player-match-features/")
+    with pytest.raises(ValueError):
+        storage._resolve_gold_object("s3://other-bucket/private/model.parquet")
+    with pytest.raises(ValueError):
+        storage._resolve_gold_object("s3://fps-anticheat-datalake/bronze/raw.parquet")
