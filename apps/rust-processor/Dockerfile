@@ -65,9 +65,9 @@ ENV NOT_CRAN=true
 # ARROW_R_DEV=false: Tắt chế độ developer build để tránh kích hoạt cmake compile từ source
 ENV ARROW_R_DEV=false
 
-# Cài đặt R package arrow từ Posit Package Manager (P3M dev) dùng pre-compiled binary cho Debian Bookworm
-# Sử dụng định dạng User-Agent chuẩn "R (version platform arch os)" để P3M nhận diện và trả về binary cực nhanh
-RUN Rscript -e 'options(repos = c(CRAN = "https://p3m.dev/cran/__linux__/bookworm/latest"), HTTPUserAgent = sprintf("R (%s)", paste(getRversion(), R.version$platform, R.version$arch, R.version$os))); install.packages("arrow")' \
+# Cài đặt R package arrow bản pre-compiled Linux binary cực nhanh từ Apache R-Universe (Zero C++ source compilation)
+# r-universe trả về binary `.tar.gz` được build sẵn cho Linux, cài đặt hoàn tất chỉ trong 2-3 giây
+RUN Rscript -e 'install.packages("arrow", repos = c("https://apache.r-universe.dev", "https://cloud.r-project.org"))' \
     # Kiểm tra xem package arrow đã được load thành công trong R chưa (Fail-Close)
     && Rscript -e 'stopifnot(requireNamespace("arrow", quietly=TRUE))' \
     # Kiểm tra xem package jsonlite đã được load thành công trong R chưa (Fail-Close)
