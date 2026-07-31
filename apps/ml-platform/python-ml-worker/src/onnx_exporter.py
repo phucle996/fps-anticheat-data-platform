@@ -105,29 +105,44 @@ class ONNXExporter:
 
     @staticmethod
     def _convert_to_onnx(model: Any, feature_cols: list = None) -> bytes:
-        """Chuyển đổi mô hình scikit-learn sang ONNX bytes bằng skl2onnx và validate bằng onnx.checker"""
+        """Chuyển đổi mô hình ML (XGBoost GPU hoặc scikit-learn CPU) sang ONNX bytes và kiểm tra tính hợp lệ bằng onnx.checker"""
         if feature_cols is None:
             feature_cols = FEATURE_CONTRACT
 
         try:
-            from skl2onnx import convert_sklearn
-            from skl2onnx.common.data_types import FloatTensorType
             import onnx
+            model_type_name = type(model).__name__
 
-            initial_type = [("float_input", FloatTensorType([None, len(feature_cols)]))]
-            # ZipMap tạo map output khó tối ưu ở Rust; tensor [batch, classes]
-            # giữ contract byte/shape ổn định giữa Python và ONNX Runtime.
-            onnx_model = convert_sklearn(
-                model,
-                initial_types=initial_type,
-                options={id(model): {"zipmap": False}},
-            )
+            # Nếu mô hình là XGBoost (GPU / CPU accelerated), sử dụng onnxmltools
+            if "XGB" in model_type_name or hasattr(model, "get_booster"):
+                from onnxmltools import convert_xgboost
+                from onnxmltools.convert.common.data_types import FloatTensorType
 
-            # Validate ONNX model hợp lệ
+                print(f"[ONNX EXPORTER] Đang chuyển đổi mô hình XGBoost ({model_type_name}) sang ONNX...")
+                initial_type = [("float_input", FloatTensorType([None, len(feature_cols)]))]
+                onnx_model = convert_xgboost(
+                    model,
+                    initial_types=initial_type,
+                    options={id(model): {"zipmap": False}},
+                )
+            else:
+                # Ngược lại, mô hình là scikit-learn (RandomForest/IsolationForest), sử dụng skl2onnx
+                from skl2onnx import convert_sklearn
+                from skl2onnx.common.data_types import FloatTensorType
+
+                print(f"[ONNX EXPORTER] Đang chuyển đổi mô hình Scikit-Learn ({model_type_name}) sang ONNX...")
+                initial_type = [("float_input", FloatTensorType([None, len(feature_cols)]))]
+                onnx_model = convert_sklearn(
+                    model,
+                    initial_types=initial_type,
+                    options={id(model): {"zipmap": False}},
+                )
+
+            # Validate ONNX model xem cấu trúc graph có hợp lệ 100% hay không (Fail-Close)
             onnx.checker.check_model(onnx_model)
 
             onnx_bytes = onnx_model.SerializeToString()
-            print(f"[ONNX EXPORTER] Conversion & Validation ONNX model thành công! ({len(onnx_bytes)} bytes)")
+            print(f"[ONNX EXPORTER] Conversion & Validation ONNX model ({model_type_name}) thành công! ({len(onnx_bytes)} bytes)")
             return onnx_bytes
 
         except Exception as err:

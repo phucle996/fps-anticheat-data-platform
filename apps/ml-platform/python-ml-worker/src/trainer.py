@@ -39,11 +39,31 @@ class ModelTrainer:
 
         if has_ground_truth:
             return self._train_supervised(df)
-        else:
-            return self._train_unsupervised(df)
+        else    def _build_classifier(self) -> Tuple[Any, str]:
+        """Tự động khởi tạo mô hình phân loại: ưu tiên XGBoost GPU (CUDA), fallback về RandomForest CPU nếu không có GPU"""
+        try:
+            import xgboost as xgb
+            # Thử khởi tạo XGBoost Classifier chạy trên NVIDIA GPU với CUDA acceleration
+            model = xgb.XGBClassifier(
+                n_estimators=100,
+                max_depth=10,
+                random_state=42,
+                tree_method="hist",
+                device="cuda",
+                eval_metric="logloss"
+            )
+            print("[GPU ACCELERATION] Đã khởi tạo thành công mô hình XGBoost Classifier trên NVIDIA GPU (CUDA)...", flush=True)
+            return model, "XGBClassifier (CUDA GPU)"
+        except Exception as err:
+            # Fallback an toàn về CPU nếu node Cloud không có GPU hoặc lỗi driver CUDA
+            print(f"[CPU FALLBACK] Không thể bật GPU CUDA ({err}), tự động fallback về RandomForest CPU...", flush=True)
+            model = RandomForestClassifier(
+                n_estimators=100, max_depth=10, random_state=42, n_jobs=-1
+            )
+            return model, "RandomForestClassifier (CPU)"
 
     def _train_supervised(self, df: pd.DataFrame) -> Tuple[Any, Dict[str, Any]]:
-        print("[TRAINER PROGRESS 25%] Phát hiện Ground Truth (is_suspicious) -> Khởi tạo Supervised RandomForest Classifier...", flush=True)
+        print("[TRAINER PROGRESS 25%] Phát hiện Ground Truth (is_suspicious) -> Khởi tạo Supervised Classifier...", flush=True)
 
         features = self.features
         missing = [f for f in features if f not in df.columns]
@@ -65,10 +85,8 @@ class ModelTrainer:
         X_test = clean_df.iloc[test_idx][features]
         y_test = clean_df.iloc[test_idx]["is_suspicious"]
 
-        print(f"[TRAINER PROGRESS 75%] Đang fit 100 cây quyết định RandomForest trên {len(X_train):,} mẫu train...", flush=True)
-        model = RandomForestClassifier(
-            n_estimators=100, max_depth=10, random_state=42, n_jobs=-1
-        )
+        model, model_name = self._build_classifier()
+        print(f"[TRAINER PROGRESS 75%] Đang fit mô hình {model_name} trên {len(X_train):,} mẫu train...", flush=True)
         model.fit(X_train, y_train)
 
         print("[TRAINER PROGRESS 90%] Đánh giá chỉ số chất lượng mô hình trên tập test...", flush=True)
@@ -77,7 +95,7 @@ class ModelTrainer:
 
         metrics = {
             "mode": "supervised",
-            "model_name": "RandomForestClassifier",
+            "model_name": model_name,
             "features_used": features,
             "precision": float(precision_score(y_test, y_pred, zero_division=0)),
             "recall": float(recall_score(y_test, y_pred, zero_division=0)),
@@ -112,21 +130,20 @@ class ModelTrainer:
         scores = model.decision_function(clean_df)
 
         # Export contract yêu cầu probability [0,1]. IsolationForest xuất raw
-        # decision score, nên dùng nó tạo pseudo-label rồi fit classifier
-        # deterministic; Rust chỉ phải hiểu một output semantics duy nhất.
+        # decision score, nên dùng nó tạo pseudo-label rồi fit classifier GPU/CPU;
+        # Rust chỉ phải hiểu một output semantics duy nhất.
         anomaly_count = max(1, int(round(len(clean_df) * 0.05)))
         anomaly_indices = np.argsort(scores)[:anomaly_count]
         pseudo_labels = np.zeros(len(clean_df), dtype=np.int64)
         pseudo_labels[anomaly_indices] = 1
-        probability_model = RandomForestClassifier(
-            n_estimators=100, max_depth=10, random_state=42, n_jobs=-1
-        )
+
+        probability_model, model_name = self._build_classifier()
         probability_model.fit(clean_df, pseudo_labels)
         pseudo_predictions = probability_model.predict(clean_df)
 
         metrics = {
             "mode": "unsupervised",
-            "model_name": "RandomForestClassifier",
+            "model_name": model_name,
             "teacher_model": "IsolationForest",
             "features_used": features,
             "total_samples": int(len(clean_df)),
@@ -137,4 +154,5 @@ class ModelTrainer:
         }
 
         print(f"[TRAINER PROGRESS 100%] Unsupervised Training OK. Total Samples={metrics['total_samples']:,}, Mean Anomaly Score={metrics['mean_anomaly_score']:.4f}", flush=True)
+        return probability_model, metricsSS 100%] Unsupervised Training OK. Total Samples={metrics['total_samples']:,}, Mean Anomaly Score={metrics['mean_anomaly_score']:.4f}", flush=True)
         return probability_model, metrics
