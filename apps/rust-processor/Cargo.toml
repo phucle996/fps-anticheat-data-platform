@@ -9,7 +9,7 @@ description = "PUBG Anti-Cheat High-Throughput Rust Stream Processor Engine"
 # Tokio Multi-threaded Async Runtime cho xử lý song song throughput cao
 tokio = { version = "1.38", features = ["full"] }
 
-# Rdkafka Client Bindings cho Kafka Cluster
+# Rdkafka Client Bindings cho Kafka Cluster (Dùng cấu hình tiêu chuẩn không bật zstd crate feature để tránh conflict zstd-sys với parquet)
 rdkafka = "0.36"
 
 # Serde mã hóa và giải mã JSON

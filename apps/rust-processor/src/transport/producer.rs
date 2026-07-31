@@ -31,10 +31,15 @@ pub struct KafkaEventProducer {
 impl KafkaEventProducer {
     pub fn new(config: &Config) -> Result<Self> {
         let producer = ClientConfig::new()
+            // Địa chỉ Kafka Broker (vd: kafka:9092)
             .set("bootstrap.servers", &config.kafka_brokers)
+            // Bật Idempotence để chống trùng lặp tin nhắn khi retry
             .set("enable.idempotence", "true")
+            // Yêu cầu tất cả in-sync replicas xác nhận ghi nhận (acks=all cho HA/Durability)
             .set("acks", "all")
-            .set("compression.type", "zstd")
+            // Dùng compression.type=none cho JSON signal message dung lượng siêu nhỏ (~200 bytes) để tối ưu latency và tránh nén dư thừa
+            .set("compression.type", "none")
+            // Timeout chờ ACK tối đa 30 giây
             .set("message.timeout.ms", "30000")
             .create()
             .map_err(|err| {

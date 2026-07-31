@@ -6,13 +6,14 @@
 # ------------------------------------------
 FROM rust:1.87-slim-bookworm AS builder
 
-# Cài đặt gói hệ thống cần thiết cho cargo build (pkg-config, libssl-dev, cmake cho rdkafka C binding)
+# Cài đặt gói hệ thống cần thiết cho cargo build (pkg-config, libssl-dev, cmake, libzstd-dev cho rdkafka zstd C binding)
 # Tối ưu cache cho apt-get package manager
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
     apt-get update && apt-get install -y --no-install-recommends \
     pkg-config \
     libssl-dev \
+    libzstd-dev \
     cmake \
     build-essential
 
@@ -38,16 +39,17 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     && cp /app/target/release/rust-processor /app/rust-processor-bin
 
 # ------------------------------------------
-# Stage 2: Runtime Stage (Debian Bookworm với R 4.4 + Arrow + OpenSSL)
+# Stage 2: Runtime Stage (Debian Bookworm với R 4.4 + Arrow + OpenSSL + libzstd1)
 # ------------------------------------------
 FROM debian:bookworm-slim AS runner
 
-# Cài đặt R runtime, OpenSSL, ca-certificates và các gói hệ thống cho R (bao gồm make/build-essential cho dependencies)
+# Cài đặt R runtime, OpenSSL, ca-certificates, libzstd1 và các gói hệ thống cho R
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
     apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     libssl3 \
+    libzstd1 \
     r-base \
     r-cran-jsonlite \
     libcurl4-openssl-dev \
