@@ -7,9 +7,9 @@
 # -----------------------------------------------------------------------------
 # Stage 1: Build Rust Inference Engine Binary
 # -----------------------------------------------------------------------------
-FROM rust:1.87-alpine AS rust-builder
+FROM rust:1.88-alpine AS rust-builder
 WORKDIR /app
-RUN apk add --no-cache musl-dev g++ make pkgconfig
+RUN apk add --no-cache musl-dev g++ make pkgconfig openssl-dev
 
 # Copy Cargo metadata trước để cache dependencies
 COPY rust-inference/Cargo.toml rust-inference/Cargo.lock ./

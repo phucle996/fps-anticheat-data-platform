@@ -193,6 +193,14 @@ services:
       - "8081:8081"
     env_file:
       - ./apps/ml-platform/.env
+    # Cấu hình GPU passthrough NVIDIA cho ml-platform (Hỗ trợ tăng tốc suy luận ONNX và huấn luyện XGBoost CUDA)
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
     depends_on:
       kafka:
         condition: service_healthy
