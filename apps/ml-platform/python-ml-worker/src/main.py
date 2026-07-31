@@ -72,46 +72,105 @@ def _publish_dlq(producer, topic: str, msg, error: Exception) -> None:
     _publish(producer, topic, event)
 
 
+def run_train_all(config: Config, storage: StorageClient):
+    """Huấn luyện On-Demand mô hình XGBoost GPU trên TOÀN BỘ các file Gold Parquet trong Data Lake."""
+    from kafka import KafkaProducer
+    print(f"[ML PIPELINE] Kích hoạt On-Demand Training từ TOÀN BỘ Gold Parquet trên S3...", flush=True)
+    df_gold = storage.load_all_gold_datasets()
+    if len(df_gold) == 0:
+        raise ValueError("[FAIL-CLOSE] Tập dữ liệu Gold tổng hợp bị rỗng")
+
+    version = f"v-all-{int(time.time())}"
+    model, metrics = ModelTrainer().train_pipeline(df_gold)
+    bundle_files = ONNXExporter.export_bundle(model, metrics, version=version)
+    bundle_uri = storage.upload_model_bundle(version, bundle_files)
+    storage.activate_local_bundle(version, bundle_files)
+
+    # Bắn tín hiệu Kafka model.ready để Rust Inference Engine thực hiện Hot-Swap ngay lập tức
+    try:
+        brokers = config.kafka_brokers.split(",")
+        producer = KafkaProducer(
+            bootstrap_servers=brokers,
+            value_serializer=lambda v: json.dumps(v).encode("utf-8"),
+        )
+        _publish(
+            producer,
+            config.kafka_topic_model,
+            {
+                "schema_version": "1.0",
+                "event_id": hashlib.sha256(f"model.ready|on-demand|{version}".encode()).hexdigest(),
+                "op": "ml.model.ready",
+                "operation_id": f"on-demand-train-{version}",
+                "model_name": "pubg-risk",
+                "model_version": version,
+                "feature_version": "kill-event-player-match-v1",
+                "bundle_uri": bundle_uri,
+                "metrics": metrics,
+                "created_at": datetime.now(timezone.utc).isoformat(),
+            },
+        )
+        producer.flush(timeout=30)
+        producer.close()
+        print(f"[ML PIPELINE] Đã phát tín hiệu Kafka model.ready cho version {version} thành công!", flush=True)
+    except Exception as err:
+        print(f"[WARNING] Bắn tín hiệu model.ready qua Kafka gặp sự cố (Model local đã được activate): {err}", flush=True)
+
+    return version, metrics, bundle_uri
+
+
 def main():
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Python ML Training & Worker Service")
+    parser.add_argument("--mode", type=str, default="worker", choices=["worker", "train-all"], help="Chế độ thực thi (worker/train-all)")
+    args = parser.parse_args()
+
     config = Config.from_env()
     storage = StorageClient(config)
-    stop = Event()
-    signal.signal(signal.SIGTERM, lambda *_: stop.set())
-    signal.signal(signal.SIGINT, lambda *_: stop.set())
+
+    # Nếu chạy chế độ On-Demand Training (--mode=train-all): Thực thi train trên toàn bộ Gold Parquet rồi thoát
+    if args.mode == "train-all":
+        run_train_all(config, storage)
+        print("[ML WORKER] Hoàn tất tiến trình On-Demand Training!", flush=True)
+        return
 
     from kafka import KafkaConsumer, KafkaProducer
+
+    stop_event = Event()
+
+    def _shutdown(_signum, _frame):
+        stop_event.set()
+
+    signal.signal(signal.SIGINT, _shutdown)
+    signal.signal(signal.SIGTERM, _shutdown)
 
     brokers = config.kafka_brokers.split(",")
     consumer = KafkaConsumer(
         config.kafka_topic_gold,
         bootstrap_servers=brokers,
-        value_deserializer=lambda value: json.loads(value.decode("utf-8")),
-        auto_offset_reset="earliest",
-        enable_auto_commit=False,
         group_id=config.kafka_group_id,
-        consumer_timeout_ms=1000,
-        max_poll_records=1,
-        max_partition_fetch_bytes=1024 * 1024,
+        enable_auto_commit=False,
+        auto_offset_reset="earliest",
+        value_deserializer=lambda v: json.loads(v.decode("utf-8")),
     )
     producer = KafkaProducer(
         bootstrap_servers=brokers,
-        value_serializer=lambda value: json.dumps(
-            value, separators=(",", ":"), sort_keys=True
-        ).encode("utf-8"),
-        acks="all",
-        retries=5,
-        max_in_flight_requests_per_connection=1,
-        compression_type="gzip",
+        value_serializer=lambda v: json.dumps(v).encode("utf-8"),
     )
 
-    print(f"[STARTUP] ML worker lắng nghe {config.kafka_topic_gold}", flush=True)
+    print(
+        f"[STARTUP] ML worker lắng nghe {config.kafka_topic_gold}",
+        flush=True,
+    )
     try:
-        while not stop.is_set():
-            records = consumer.poll(timeout_ms=1000, max_records=1)
-            if not records:
+        while not stop_event.is_set():
+            messages = consumer.poll(timeout_ms=1000)
+            if not messages:
                 continue
-            for messages in records.values():
-                for msg in messages:
+            for _, batch_messages in messages.items():
+                for msg in batch_messages:
+                    if stop_event.is_set():
+                        break
                     last_error = None
                     for attempt in range(config.ml_max_retries):
                         try:

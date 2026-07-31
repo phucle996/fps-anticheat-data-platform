@@ -119,6 +119,11 @@ run-agg-3:
 	@echo "[+] Replay Aggregate Match Stats: agg_match_stats_3.csv..."
 	docker compose run --rm -e KAGGLE_SELECTED_FILE=agg_match_stats_3.csv go-ingestor-replay
 
+## ml: Kích hoạt On-Demand ML Training trên toàn bộ dữ liệu Gold trong Data Lake
+ml:
+	@echo "[+] Kích hoạt tiến trình On-Demand ML Training trên toàn bộ Gold Parquet..."
+	docker compose run --rm ml-platform python3 /app/python-ml-worker/src/main.py --mode=train-all
+
 ## run-agg-4: Replay tổng hợp trận đấu từ file aggregate/agg_match_stats_4.csv
 run-agg-4:
 	@echo "[+] Replay Aggregate Match Stats: agg_match_stats_4.csv..."

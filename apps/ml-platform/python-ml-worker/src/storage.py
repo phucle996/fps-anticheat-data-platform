@@ -35,6 +35,30 @@ class StorageClient:
                 f"[FAIL-CLOSE] Không nạp được s3://{bucket}/{object_key}: {err}"
             ) from err
 
+    def load_all_gold_datasets(self) -> pd.DataFrame:
+        """Nạp và tổng hợp (concat) tất cả các tập tin Gold Parquet có sẵn trong MinIO S3."""
+        response = self.s3.list_objects_v2(
+            Bucket=self.config.minio_bucket_data,
+            Prefix="gold/player-match-features/",
+        )
+        candidates = [
+            item["Key"]
+            for item in response.get("Contents", [])
+            if item["Key"].endswith((".parquet", ".csv"))
+        ]
+        if not candidates:
+            raise FileNotFoundError("[FAIL-CLOSE] Không tìm thấy bất kỳ tập tin Gold dataset nào trên MinIO S3")
+        
+        dfs = []
+        for key in candidates:
+            print(f"[STORAGE] Nạp Gold Parquet tập hợp từ s3://{self.config.minio_bucket_data}/{key}")
+            obj = self.s3.get_object(Bucket=self.config.minio_bucket_data, Key=key)
+            df = pd.read_parquet(io.BytesIO(obj["Body"].read()))
+            dfs.append(df)
+            
+        # Concat toàn bộ DataFrames từ tất cả các file Gold trong S3 Data Lake
+        return pd.concat(dfs, ignore_index=True)
+
     def upload_model_bundle(self, version: str, bundle_files: dict) -> str:
         base_prefix = f"pubg-risk/versions/{version}/"
         self.s3.head_bucket(Bucket=self.config.minio_bucket_model)

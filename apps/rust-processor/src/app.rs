@@ -60,29 +60,41 @@ impl StreamProcessorApp {
 
     /// Run khởi chạy event loop đọc tin nhắn theo thời gian thực
     pub async fn run(&mut self) -> Result<()> {
-        let mut interval = tokio::time::interval(Duration::from_millis(100));
-        interval.set_missed_tick_behavior(MissedTickBehavior::Skip);
+        let poll_timeout = Duration::from_millis(500);
 
         info!("StreamProcessorApp loop đã sẵn sàng tiếp nhận telemetry events...");
 
         loop {
-            interval.tick().await;
+            // Chờ nhận tin nhắn tiếp theo từ Kafka với timeout 500ms để không bị block vĩnh viễn
+            match tokio::time::timeout(poll_timeout, self.consumer.recv_outcome()).await {
+                Ok(Ok(outcome)) => {
+                    // Đẩy tin nhắn vào bộ đệm RAM accumulator
+                    let maybe_completed = match outcome {
+                        ConsumeOutcome::Valid(valid_msg) => self.accumulator.push(valid_msg),
+                        ConsumeOutcome::Invalid(invalid_msg) => self.accumulator.push_invalid(invalid_msg),
+                    };
 
-            let outcome = match self.consumer.recv_outcome().await {
-                Ok(out) => out,
-                Err(err) => {
-                    error!(error = %err, "Lỗi đọc tin nhắn từ Kafka consumer");
-                    continue;
+                    // Nếu bộ đệm chạm ngưỡng 10,000 bản ghi thì tiến hành flush batch
+                    if let Some(completed_batch) = maybe_completed {
+                        self.process_completed_batch(completed_batch).await?;
+                    }
                 }
-            };
-
-            let maybe_completed = match outcome {
-                ConsumeOutcome::Valid(valid_msg) => self.accumulator.push(valid_msg),
-                ConsumeOutcome::Invalid(invalid_msg) => self.accumulator.push_invalid(invalid_msg),
-            };
-
-            if let Some(completed_batch) = maybe_completed {
-                self.process_completed_batch(completed_batch).await?;
+                Ok(Err(err)) => {
+                    // Ghi log cảnh báo khi gặp lỗi đọc tin nhắn từ Kafka
+                    error!(error = %err, "Lỗi đọc tin nhắn từ Kafka consumer");
+                }
+                Err(_) => {
+                    // Quá thời gian timeout 500ms mà không có tin nhắn mới: Kiểm tra flush timer
+                    if self.accumulator.should_flush_timer() {
+                        if let Some(completed_batch) = self.accumulator.flush() {
+                            info!(
+                                record_count = completed_batch.record_count,
+                                "Tự động flush batch do đạt ngưỡng thời gian timeout (Timer Flush)"
+                            );
+                            self.process_completed_batch(completed_batch).await?;
+                        }
+                    }
+                }
             }
         }
     }
