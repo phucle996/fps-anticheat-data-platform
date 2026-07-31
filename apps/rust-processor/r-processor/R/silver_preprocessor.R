@@ -108,21 +108,39 @@ process_silver_entities <- function(manifest_path, bronze_path, output_dir) {
       kills_agg <- aggregate(event_id ~ match_id + killer_name, data = valid_killers, FUN = length)
       colnames(kills_agg) <- c("match_id", "player_id", "kills")
 
-      time_min_agg <- aggregate(event_time_seconds ~ match_id + killer_name, data = valid_killers, FUN = safe_min)
+      time_min_agg <- aggregate(
+        event_time_seconds ~ match_id + killer_name,
+        data = valid_killers,
+        FUN = safe_min,
+        na.action = na.pass
+      )
       colnames(time_min_agg) <- c("match_id", "player_id", "first_kill_time_seconds")
 
-      time_max_agg <- aggregate(event_time_seconds ~ match_id + killer_name, data = valid_killers, FUN = safe_max)
+      time_max_agg <- aggregate(
+        event_time_seconds ~ match_id + killer_name,
+        data = valid_killers,
+        FUN = safe_max,
+        na.action = na.pass
+      )
       colnames(time_max_agg) <- c("match_id", "player_id", "last_kill_time_seconds")
 
-      weapons_agg <- aggregate(weapon ~ match_id + killer_name, data = valid_killers,
-                               FUN = function(w) length(unique(w[!is.na(w)])))
+      weapons_agg <- aggregate(
+        weapon ~ match_id + killer_name,
+        data = valid_killers,
+        FUN = function(w) length(unique(w[!is.na(w)])),
+        na.action = na.pass
+      )
       colnames(weapons_agg) <- c("match_id", "player_id", "unique_weapons_used")
 
-      place_agg <- aggregate(killer_placement ~ match_id + killer_name, data = valid_killers,
-                             FUN = function(p) {
-                               valid_p <- p[!is.na(p)]
-                               if (length(valid_p) == 0) NA_integer_ else valid_p[1]
-                             })
+      place_agg <- aggregate(
+        killer_placement ~ match_id + killer_name,
+        data = valid_killers,
+        FUN = function(p) {
+          valid_p <- p[!is.na(p)]
+          if (length(valid_p) == 0) NA_integer_ else valid_p[1]
+        },
+        na.action = na.pass
+      )
       colnames(place_agg) <- c("match_id", "player_id", "killer_placement")
 
       res <- merge(all_players, kills_agg,   by = c("match_id", "player_id"), all.x = TRUE)

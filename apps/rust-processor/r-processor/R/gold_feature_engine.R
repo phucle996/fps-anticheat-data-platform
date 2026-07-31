@@ -67,12 +67,27 @@ generate_gold_features <- function(manifest_path, output_dir) {
     valid_ke <- valid_ke[order(valid_ke$match_id, valid_ke$killer_name, valid_ke$event_time_seconds), ]
   }
 
-  dist_agg <- aggregate(kill_distance_coords ~ match_id + killer_name, data = valid_ke,
-                        FUN = function(d) {
-                          valid_d <- d[!is.na(d)]
-                          if (length(valid_d) == 0) NA_real_ else median(valid_d)
-                        })
-  colnames(dist_agg) <- c("match_id", "player_id", "median_kill_distance_coordinate_units")
+  if (nrow(valid_ke) > 0) {
+    # Batch thật có thể thiếu toàn bộ tọa độ kill; aggregate phải giữ group và
+    # trả NA để consumer không crash/retry vô hạn trước khi commit offset.
+    dist_agg <- aggregate(
+      kill_distance_coords ~ match_id + killer_name,
+      data = valid_ke,
+      FUN = function(d) {
+        valid_d <- d[!is.na(d)]
+        if (length(valid_d) == 0) NA_real_ else median(valid_d)
+      },
+      na.action = na.pass
+    )
+    colnames(dist_agg) <- c("match_id", "player_id", "median_kill_distance_coordinate_units")
+  } else {
+    dist_agg <- data.frame(
+      match_id = character(),
+      player_id = character(),
+      median_kill_distance_coordinate_units = numeric(),
+      stringsAsFactors = FALSE
+    )
+  }
 
   interval_list <- list()
   if (nrow(valid_ke) > 0 && "event_time_seconds" %in% colnames(valid_ke)) {

@@ -59,6 +59,8 @@ impl BatchAccumulator {
 
     /// Push thêm 1 tin nhắn ConsumedMessage vào bộ đệm
     pub fn push(&mut self, msg: ConsumedMessage) -> Option<CompletedBatch> {
+        self.mark_batch_start_if_empty();
+
         let partition = msg.partition;
         let offset = msg.offset;
 
@@ -83,6 +85,8 @@ impl BatchAccumulator {
 
     /// Push_invalid giữ nguyên malformed payload trong batch cho tới khi DLQ đã durable.
     pub fn push_invalid(&mut self, message: InvalidKafkaMessage) -> Option<CompletedBatch> {
+        self.mark_batch_start_if_empty();
+
         self.track_partition_offset(message.partition, message.offset);
         self.current_bytes += message.raw_payload.len() + message.error_reason.len() + 128;
         self.malformed_messages.push(message);
@@ -108,6 +112,14 @@ impl BatchAccumulator {
                 }
             })
             .or_insert((offset, offset));
+    }
+
+    fn mark_batch_start_if_empty(&mut self) {
+        // Timer budget bắt đầu ở record đầu tiên; nếu dùng thời điểm app start,
+        // traffic sau một quãng idle sẽ bị flush thành các batch siêu nhỏ.
+        if self.pending_count() == 0 {
+            self.last_flush_time = Instant::now();
+        }
     }
 
     /// Should_flush_timer kiểm tra xem đã vượt quá khoảng thời gian flush_interval chưa

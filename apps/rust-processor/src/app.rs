@@ -10,6 +10,7 @@ use crate::worker::RDynamicWorkerPool;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
+use tokio::time::MissedTickBehavior;
 use tracing::{error, info, warn};
 
 /// StreamProcessorApp đóng gói toàn bộ quy trình Ingest -> Validate -> Dedup -> Arrow -> Parquet -> MinIO -> Offset Commit -> Dynamic R Pool
@@ -65,6 +66,10 @@ impl StreamProcessorApp {
 
         info!("Bắt đầu vòng lặp StreamProcessorApp consume loop (At-Least-Once Active)...");
 
+        let mut flush_ticker =
+            tokio::time::interval(Duration::from_millis(self.config.flush_interval_ms));
+        flush_ticker.set_missed_tick_behavior(MissedTickBehavior::Delay);
+
         loop {
             tokio::select! {
                 _ = tokio::signal::ctrl_c() => {
@@ -112,13 +117,17 @@ impl StreamProcessorApp {
                         }
                     }
                 }
-            }
 
-            if self.accumulator.should_flush_timer() {
-                if let Some(completed_batch) = self.accumulator.flush() {
-                    if let Err(err) = self.process_completed_batch(completed_batch).await {
-                        error!(error = %err, "Timer-triggered batch processing thất bại — ngắt loop");
-                        return Err(err);
+                _ = flush_ticker.tick() => {
+                    // Timer phải nằm trong select: khi Kafka im lặng, recv().await không wake loop
+                    // nên partial batch cuối sẽ không được commit nếu chỉ check timer sau select.
+                    if self.accumulator.should_flush_timer() {
+                        if let Some(completed_batch) = self.accumulator.flush() {
+                            if let Err(err) = self.process_completed_batch(completed_batch).await {
+                                error!(error = %err, "Timer-triggered batch processing thất bại — ngắt loop");
+                                return Err(err);
+                            }
+                        }
                     }
                 }
             }

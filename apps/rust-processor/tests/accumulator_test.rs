@@ -137,3 +137,26 @@ fn test_malformed_only_batch_flushes_and_preserves_payload() {
     assert_eq!(batch.partition_offsets.get(&2), Some(&(42, 42)));
     assert_eq!(batch.batch_id.len(), 64);
 }
+
+#[test]
+fn test_timer_budget_starts_when_first_record_enters_empty_batch() {
+    let cfg = BatchAccumulatorConfig {
+        max_records: 10,
+        max_bytes: 100_000,
+        flush_interval: Duration::from_millis(40),
+    };
+    let mut accum = BatchAccumulator::new(cfg);
+
+    std::thread::sleep(Duration::from_millis(60));
+    assert!(accum.push(create_mock_message(0, 1)).is_none());
+    assert!(
+        !accum.should_flush_timer(),
+        "Idle time before the first pending record must not age the new batch"
+    );
+
+    std::thread::sleep(Duration::from_millis(45));
+    assert!(
+        accum.should_flush_timer(),
+        "Timer should age from the first pending record"
+    );
+}

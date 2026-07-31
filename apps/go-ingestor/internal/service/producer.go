@@ -65,7 +65,7 @@ func NewKafkaProducer(brokers []string, rawTopic, invalidTopic string, log *logr
 		"raw_topic":     rawTopic,
 		"invalid_topic": invalidTopic,
 		"acks":          "all",
-		"compression":   "zstd",
+		"compression":   "gzip",
 	}).Info("Đã khởi tạo Kafka Producer (HA & Fail-Close ready)")
 
 	return &KafkaProducer{
