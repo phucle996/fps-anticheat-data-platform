@@ -59,6 +59,62 @@ class StorageClient:
         # Concat toàn bộ DataFrames từ tất cả các file Gold trong S3 Data Lake
         return pd.concat(dfs, ignore_index=True)
 
+    def get_ml_checkpoint(self) -> dict:
+        """Tải file checkpoint trạng thái huấn luyện ML từ MinIO S3 (manifests/ml-training-checkpoint.json)."""
+        checkpoint_key = "manifests/ml-training-checkpoint.json"
+        try:
+            obj = self.s3.get_object(Bucket=self.config.minio_bucket_data, Key=checkpoint_key)
+            import json
+            return json.loads(obj["Body"].read().decode("utf-8"))
+        except Exception:
+            # Trả về checkpoint rỗng mặc định nếu chưa từng tạo checkpoint
+            return {"processed_gold_files": [], "last_version": "", "total_samples": 0}
+
+    def save_ml_checkpoint(self, version: str, processed_files: list[str], total_samples: int) -> None:
+        """Lưu trạng thái checkpoint huấn luyện mới lên MinIO S3 (Atomicity & Persistence)."""
+        checkpoint_key = "manifests/ml-training-checkpoint.json"
+        import json
+        from datetime import datetime, timezone
+
+        checkpoint_data = {
+            "last_trained_at": datetime.now(timezone.utc).isoformat(),
+            "last_version": version,
+            "processed_gold_files": sorted(list(set(processed_files))),
+            "total_samples": total_samples,
+        }
+
+        self.s3.put_object(
+            Bucket=self.config.minio_bucket_data,
+            Key=checkpoint_key,
+            Body=json.dumps(checkpoint_data, indent=2).encode("utf-8"),
+            ContentType="application/json",
+        )
+        print(f"[STORAGE] Đã lưu ML Training Checkpoint mới lên s3://{self.config.minio_bucket_data}/{checkpoint_key}")
+
+    def check_unprocessed_gold_files(self) -> tuple[bool, list[str], list[str]]:
+        """So sánh danh sách file Gold hiện có trên S3 với Checkpoint để phát hiện các file mới chưa được train."""
+        response = self.s3.list_objects_v2(
+            Bucket=self.config.minio_bucket_data,
+            Prefix="gold/player-match-features/",
+        )
+        all_candidates = sorted([
+            item["Key"]
+            for item in response.get("Contents", [])
+            if item["Key"].endswith((".parquet", ".csv"))
+        ])
+
+        if not all_candidates:
+            return False, [], []
+
+        checkpoint = self.get_ml_checkpoint()
+        processed_set = set(checkpoint.get("processed_gold_files", []))
+
+        # Tìm các file Gold Parquet mới chưa từng đưa vào phiên train trước
+        new_files = [f for f in all_candidates if f not in processed_set]
+        has_new = len(new_files) > 0
+
+        return has_new, all_candidates, new_files
+
     def upload_model_bundle(self, version: str, bundle_files: dict) -> str:
         base_prefix = f"pubg-risk/versions/{version}/"
         self.s3.head_bucket(Bucket=self.config.minio_bucket_model)

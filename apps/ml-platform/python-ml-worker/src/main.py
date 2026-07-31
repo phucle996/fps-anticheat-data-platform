@@ -73,9 +73,30 @@ def _publish_dlq(producer, topic: str, msg, error: Exception) -> None:
 
 
 def run_train_all(config: Config, storage: StorageClient):
-    """Huấn luyện On-Demand mô hình XGBoost GPU trên TOÀN BỘ các file Gold Parquet trong Data Lake."""
+    """Huấn luyện On-Demand mô hình XGBoost GPU trên TOÀN BỘ các file Gold Parquet trong Data Lake (Có Checkpoint State Guard)."""
     from kafka import KafkaProducer
-    print(f"[ML PIPELINE] Kích hoạt On-Demand Training từ TOÀN BỘ Gold Parquet trên S3...", flush=True)
+
+    # 1. Kiểm tra Checkpoint State để phát hiện các file Gold mới chưa được train
+    has_new_files, all_files, new_files = storage.check_unprocessed_gold_files()
+
+    if not all_files:
+        print("[ML PIPELINE] Không tìm thấy bất kỳ file Gold dataset nào trên MinIO S3. Bỏ qua huấn luyện.", flush=True)
+        return None, None, None
+
+    if not has_new_files:
+        print(
+            f"[ML PIPELINE] Tất cả {len(all_files)} file Gold Parquet đã được huấn luyện tại Checkpoint trước đó (No new data). "
+            f"Bỏ qua tiến trình huấn luyện (Skipped) để bảo vệ tài nguyên GPU!",
+            flush=True,
+        )
+        return None, None, None
+
+    print(
+        f"[ML PIPELINE] Kích hoạt On-Demand Training từ {len(all_files)} file Gold Parquet "
+        f"(Phát hiện {len(new_files)} file Gold mới chưa từng train)...",
+        flush=True,
+    )
+
     df_gold = storage.load_all_gold_datasets()
     if len(df_gold) == 0:
         raise ValueError("[FAIL-CLOSE] Tập dữ liệu Gold tổng hợp bị rỗng")
@@ -86,7 +107,10 @@ def run_train_all(config: Config, storage: StorageClient):
     bundle_uri = storage.upload_model_bundle(version, bundle_files)
     storage.activate_local_bundle(version, bundle_files)
 
-    # Bắn tín hiệu Kafka model.ready để Rust Inference Engine thực hiện Hot-Swap ngay lập tức
+    # 2. Cập nhật ML Training Checkpoint State mới lên MinIO S3
+    storage.save_ml_checkpoint(version, all_files, len(df_gold))
+
+    # 3. Bắn tín hiệu Kafka model.ready để Rust Inference Engine thực hiện Hot-Swap ngay lập tức
     try:
         brokers = config.kafka_brokers.split(",")
         producer = KafkaProducer(
