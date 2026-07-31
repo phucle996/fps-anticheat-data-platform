@@ -120,10 +120,10 @@ class ONNXExporter:
 
                 print(f"[ONNX EXPORTER] Đang chuyển đổi mô hình XGBoost ({model_type_name}) sang ONNX...")
                 initial_type = [("float_input", FloatTensorType([None, len(feature_cols)]))]
+                # convert_xgboost của onnxmltools không nhận tham số options (options chỉ dành riêng cho skl2onnx)
                 onnx_model = convert_xgboost(
                     model,
                     initial_types=initial_type,
-                    options={id(model): {"zipmap": False}},
                 )
             else:
                 # Ngược lại, mô hình là scikit-learn (RandomForest/IsolationForest), sử dụng skl2onnx
