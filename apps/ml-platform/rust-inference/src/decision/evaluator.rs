@@ -1,4 +1,5 @@
 use crate::decision::policy::PolicyConfig;
+use crate::error::Result;
 use crate::evidence::EvidenceMatrix;
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, RwLock};
@@ -6,10 +7,10 @@ use std::sync::{Arc, RwLock};
 /// DecisionOutcome định nghĩa cấu trúc kết quả quyết định xử lý gian lận
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DecisionOutcome {
-    pub action: String,         // Hành động xử lý: "CLEAR", "WATCHLIST", "ESCALATE_TO_MODERATOR", "SUSPEND_ACCOUNT", "PERMANENT_BAN"
-    pub priority: String,       // Mức độ ưu tiên: "LOW", "MEDIUM", "HIGH", "URGENT", "CRITICAL"
-    pub reason: String,         // Lý do giải thích cho quyết định xử lý
-    pub policy_rule: String,    // Tên quy tắc (rule) khớp điều kiện
+    pub action: String, // Hành động xử lý: "CLEAR", "WATCHLIST", "ESCALATE_TO_MODERATOR", "SUSPEND_ACCOUNT", "PERMANENT_BAN"
+    pub priority: String, // Mức độ ưu tiên: "LOW", "MEDIUM", "HIGH", "URGENT", "CRITICAL"
+    pub reason: String, // Lý do giải thích cho quyết định xử lý
+    pub policy_rule: String, // Tên quy tắc (rule) khớp điều kiện
     pub policy_version: String, // Phiên bản policy YAML áp dụng
 }
 
@@ -21,15 +22,20 @@ pub struct DecisionEvaluator {
 
 impl DecisionEvaluator {
     /// New khởi tạo DecisionEvaluator từ đường dẫn file cấu hình Policy YAML
-    pub fn new(policy_path: &str) -> Self {
-        let config = PolicyConfig::load_from_file(policy_path);
-        Self {
+    pub fn new(policy_path: &str) -> Result<Self> {
+        let config = PolicyConfig::load_from_file(policy_path)?;
+        Ok(Self {
             config: Arc::new(RwLock::new(config)),
-        }
+        })
     }
 
     /// Evaluate thực hiện đối chiếu điểm rủi ro và các chỉ số bằng chứng để đưa ra kết quả xử lý
-    pub fn evaluate(&self, risk_score: f32, evidence: &EvidenceMatrix, raw_features: &[f32]) -> DecisionOutcome {
+    pub fn evaluate(
+        &self,
+        risk_score: f32,
+        evidence: &EvidenceMatrix,
+        raw_features: &[f32],
+    ) -> DecisionOutcome {
         // Tầng 1: Đánh giá quy tắc Heuristic Siêu Bằng Chứng (Instant Physics Bound Violation Rules)
         if raw_features.len() >= 10 {
             let kills = raw_features.get(0).cloned().unwrap_or(0.0);
@@ -42,7 +48,10 @@ impl DecisionEvaluator {
                 return DecisionOutcome {
                     action: "PERMANENT_BAN".to_string(),
                     priority: "CRITICAL".to_string(),
-                    reason: format!("Phát hiện Teleport Hack: Chỉ số dịch chuyển vị trí dị thường {:.2}", teleport_score),
+                    reason: format!(
+                        "Phát hiện Teleport Hack: Chỉ số dịch chuyển vị trí dị thường {:.2}",
+                        teleport_score
+                    ),
                     policy_rule: "heuristic_teleport_hack".to_string(),
                     policy_version: "v1.0-heuristic".to_string(),
                 };
@@ -53,7 +62,10 @@ impl DecisionEvaluator {
                 return DecisionOutcome {
                     action: "PERMANENT_BAN".to_string(),
                     priority: "CRITICAL".to_string(),
-                    reason: format!("Phát hiện Burst Aimbot: Thời gian hạ gục liên tiếp {:.1}ms siêu tốc", burst_interval),
+                    reason: format!(
+                        "Phát hiện Burst Aimbot: Thời gian hạ gục liên tiếp {:.1}ms siêu tốc",
+                        burst_interval
+                    ),
                     policy_rule: "heuristic_burst_aimbot".to_string(),
                     policy_version: "v1.0-heuristic".to_string(),
                 };
@@ -64,7 +76,10 @@ impl DecisionEvaluator {
                 return DecisionOutcome {
                     action: "PERMANENT_BAN".to_string(),
                     priority: "CRITICAL".to_string(),
-                    reason: format!("Phát hiện Headshot Lock: Chuỗi {:.0} lần hạ gục Headshot liên tiếp", headshot_streak),
+                    reason: format!(
+                        "Phát hiện Headshot Lock: Chuỗi {:.0} lần hạ gục Headshot liên tiếp",
+                        headshot_streak
+                    ),
                     policy_rule: "heuristic_headshot_streak".to_string(),
                     policy_version: "v1.0-heuristic".to_string(),
                 };
@@ -75,13 +90,13 @@ impl DecisionEvaluator {
         let config_guard = match self.config.read() {
             Ok(guard) => guard,
             Err(_) => {
-                // Xử lý an toàn nếu xảy ra lỗi Lock Poisoning
+                // Lock poison không được phép tạo quyết định CLEAR fail-open.
                 return DecisionOutcome {
-                    action: "CLEAR".to_string(),
-                    priority: "LOW".to_string(),
-                    reason: "Trạng thái Lock không khả dụng, áp dụng ứng phó an toàn CLEAR".to_string(),
+                    action: "ESCALATE_TO_MODERATOR".to_string(),
+                    priority: "HIGH".to_string(),
+                    reason: "Policy state không khả dụng; yêu cầu đánh giá thủ công".to_string(),
                     policy_rule: "fallback_lock_error".to_string(),
-                    policy_version: "v1-fallback".to_string(),
+                    policy_version: "UNAVAILABLE".to_string(),
                 };
             }
         };

@@ -1,22 +1,33 @@
+mod common;
+
 use rust_inference::inference::OnnxInferenceEngine;
-use std::fs;
 
-// Test_onnx_engine_prediction kiểm tra nạp model và tính toán Anomaly Risk Score
 #[test]
-fn test_onnx_engine_prediction() {
-    let temp_dir = std::env::temp_dir().join("test_model_dir");
-    let _ = fs::create_dir_all(&temp_dir);
-    let model_file = temp_dir.join("model.onnx");
-    let _ = fs::write(&model_file, b"ONNX_TEST_MODEL_BYTES");
+fn test_onnx_engine_executes_model_and_validates_feature_contract() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    common::write_test_bundle(temp_dir.path());
+    let engine = OnnxInferenceEngine::new(temp_dir.path().to_str().unwrap()).unwrap();
 
-    let engine = OnnxInferenceEngine::new(temp_dir.to_str().unwrap()).unwrap();
-
-    // Features: [kills_pm, damage_pm, headshot_ratio, damage_per_kill, movement_pm, perf_vs_lobby]
-    let features = [1.50, 140.0, 0.95, 120.0, 250.0, 800.0];
-    let (score, level) = engine.predict(&features);
-
-    assert!(score >= 0.80);
+    let (score, level) = engine.predict(&[8.0, 1.0, 1.0, 5.0, 4.0]).unwrap();
+    assert!((score - 0.99310476).abs() <= 1e-5);
     assert_eq!(level, "CRITICAL");
 
-    let _ = fs::remove_dir_all(temp_dir);
+    assert!(engine.predict(&[1.0, 2.0]).is_err());
+    assert!(engine.predict(&[1.0, 2.0, f32::NAN, 4.0, 5.0]).is_err());
+}
+
+#[test]
+fn test_invalid_candidate_does_not_replace_working_model() {
+    let temp_dir = tempfile::tempdir().unwrap();
+    common::write_test_bundle(temp_dir.path());
+    let engine = OnnxInferenceEngine::new(temp_dir.path().to_str().unwrap()).unwrap();
+    let version = engine.version();
+
+    let invalid_dir = tempfile::tempdir().unwrap();
+    std::fs::write(invalid_dir.path().join("model.onnx"), b"not-onnx").unwrap();
+    assert!(engine
+        .hot_swap(invalid_dir.path().to_str().unwrap())
+        .is_err());
+    assert_eq!(engine.version(), version);
+    assert!(engine.is_available());
 }

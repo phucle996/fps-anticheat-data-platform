@@ -26,3 +26,10 @@ tracing-subscriber = { version = "0.3", features = ["json", "env-filter"] }
 # Quản lý lỗi định dạng chuẩn hóa
 thiserror = "1.0"
 anyhow = "1.0"
+
+# ONNX Runtime thực thi model artifact thật; ghim RC để API và native runtime không drift.
+ort = { version = "=2.0.0-rc.12", features = ["download-binaries"] }
+
+[dev-dependencies]
+base64 = "0.22"
+tempfile = "3"

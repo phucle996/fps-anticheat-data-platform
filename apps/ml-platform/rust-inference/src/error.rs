@@ -12,6 +12,12 @@ pub enum AppError {
     #[error("Lỗi verify SHA-256 Checksum: {0}")]
     ChecksumMismatch(String),
 
+    #[error("Lỗi ONNX inference: {0}")]
+    Inference(String),
+
+    #[error("Lỗi policy configuration: {0}")]
+    Policy(String),
+
     #[error("Lỗi thực thi Unix Domain Socket IPC: {0}")]
     Ipc(String),
 

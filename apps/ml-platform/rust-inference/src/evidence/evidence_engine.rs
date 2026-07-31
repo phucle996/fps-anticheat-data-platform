@@ -3,11 +3,11 @@ use serde::{Deserialize, Serialize};
 /// EvidenceItem đại diện cho 1 bằng chứng chi tiết về đặc trưng nghi vấn gian lận
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct EvidenceItem {
-    pub feature: String,   // Tên đặc trưng ML
-    pub value: f32,        // Giá trị thực tế của người chơi
-    pub lobby_avg: f32,    // Giá trị trung bình của trận đấu
-    pub z_score: f32,      // Chỉ số Robust Z-Score
-    pub reason: String,     // Mô tả giải thích ngắn gọn lý do nghi vấn
+    pub feature: String, // Tên đặc trưng ML
+    pub value: f32,      // Giá trị thực tế của người chơi
+    pub lobby_avg: f32,  // Giá trị trung bình của trận đấu
+    pub z_score: f32,    // Chỉ số Robust Z-Score
+    pub reason: String,  // Mô tả giải thích ngắn gọn lý do nghi vấn
 }
 
 /// EvidenceMatrix chứa danh sách các bằng chứng gian lận nổi bật nhất
@@ -64,7 +64,11 @@ impl EvidenceEngine {
         }
 
         // Sắp xếp các đặc trưng theo Robust Z-Score giảm dần và lấy Top 2
-        items.sort_by(|a, b| b.z_score.partial_cmp(&a.z_score).unwrap_or(std::cmp::Ordering::Equal));
+        items.sort_by(|a, b| {
+            b.z_score
+                .partial_cmp(&a.z_score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         items.truncate(2);
 
         EvidenceMatrix {

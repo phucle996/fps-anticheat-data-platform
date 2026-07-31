@@ -1,3 +1,5 @@
+mod common;
+
 use rust_inference::decision::{DecisionEvaluator, PolicyConfig};
 use rust_inference::evidence::EvidenceEngine;
 
@@ -5,7 +7,7 @@ use rust_inference::evidence::EvidenceEngine;
 #[test]
 fn test_decision_evaluator_policy_rules() {
     // 1. Khởi tạo Evaluator với Fallback / Config YAML
-    let evaluator = DecisionEvaluator::new("configs/policies.yaml");
+    let evaluator = DecisionEvaluator::new(&common::policy_path()).unwrap();
 
     // Case 1: Risk score thấp (0.15) -> Action: CLEAR
     let features_normal = [10.0, 1.0, 0.1, 100.0, 5.0, 1.0];
@@ -30,17 +32,17 @@ fn test_decision_evaluator_policy_rules() {
     assert_eq!(outcome_suspend.priority, "URGENT");
 
     // Case 5: Heuristic Teleport Hack (spatial_teleport_score > 0.80) -> Instant PERMANENT_BAN
-    let features_teleport = vec![8.0, 500.0, 0.5, 100.0, 10.0, 500.0, 100.0, 0.0, 5000.0, 0.95, 2.0];
+    let features_teleport = vec![
+        8.0, 500.0, 0.5, 100.0, 10.0, 500.0, 100.0, 0.0, 5000.0, 0.95, 2.0,
+    ];
     let evidence_teleport = EvidenceEngine::generate_evidence(&features_teleport);
     let outcome_teleport = evaluator.evaluate(0.99, &evidence_teleport, &features_teleport);
     assert_eq!(outcome_teleport.action, "PERMANENT_BAN");
     assert_eq!(outcome_teleport.policy_rule, "heuristic_teleport_hack");
 }
 
-// Test_policy_config_fallback_safety kiểm tra khả năng phục hồi an toàn khi file YAML không tồn tại
+// Policy là security boundary nên file thiếu phải fail-close.
 #[test]
 fn test_policy_config_fallback_safety() {
-    let fallback = PolicyConfig::load_from_file("non_existent_policy.yaml");
-    assert_eq!(fallback.version, "v1-fallback");
-    assert!(!fallback.rules.is_empty());
+    assert!(PolicyConfig::load_from_file("non_existent_policy.yaml").is_err());
 }

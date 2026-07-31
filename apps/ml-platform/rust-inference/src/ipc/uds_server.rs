@@ -3,122 +3,243 @@ use crate::error::{AppError, Result};
 use crate::evidence::{EvidenceEngine, EvidenceMatrix};
 use crate::inference::OnnxInferenceEngine;
 use serde::{Deserialize, Serialize};
-use std::fs;
+use std::future::Future;
+use std::os::unix::fs::{FileTypeExt, PermissionsExt};
 use std::path::Path;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::UnixListener;
+use std::sync::Arc;
+use std::time::Duration;
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
+use tokio::net::{UnixListener, UnixStream};
+use tokio::sync::Semaphore;
+use tokio::time::timeout;
 use tracing::{info, warn};
 
 fn default_op() -> String {
     "predict".to_string()
 }
 
-/// IpcPredictRequest định nghĩa cấu trúc JSON IPC Yêu cầu dự báo từ Go API Gateway
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IpcPredictRequest {
     #[serde(default = "default_op")]
-    pub op: String,                // Operation name (vd: "predict")
-    pub match_id: String,          // Mã trận đấu
-    pub player_id: String,         // Mã người chơi
-    pub features: Vec<f32>,        // Các đặc trưng ML Gold Feature Contract (Linh hoạt độ dài 6-11 đặc trưng)
+    pub op: String,
+    pub match_id: String,
+    pub player_id: String,
+    pub features: Vec<f32>,
 }
 
-/// IpcPredictResponse định nghĩa cấu trúc JSON IPC Phản hồi cho Go API Gateway
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IpcPredictResponse {
-    pub status: String,                 // Trạng thái xử lý ("ok" hoặc "error")
-    pub match_id: String,               // Mã trận đấu
-    pub player_id: String,              // Mã người chơi
-    pub risk_score: f32,                // Anomaly Risk Score (0.0 - 1.0)
-    pub risk_level: String,             // Nhãn Risk Level ("LOW", "MEDIUM", "HIGH", "CRITICAL")
-    pub model_version: String,          // Phiên bản ONNX Model ("v1")
-    pub evidence_matrix: EvidenceMatrix, // Bằng chứng gian lận Evidence Matrix
-    pub decision_outcome: Option<DecisionOutcome>, // Kết quả quyết định xử lý gian lận từ Decision Engine
+    pub status: String,
+    pub match_id: String,
+    pub player_id: String,
+    pub risk_score: f32,
+    pub risk_level: String,
+    pub model_version: String,
+    pub evidence_matrix: EvidenceMatrix,
+    pub decision_outcome: Option<DecisionOutcome>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
 }
 
-/// UdsIpcServer quản lý lắng nghe và xử lý giao tiếp Unix Domain Socket IPC siêu tốc với Go API
 pub struct UdsIpcServer {
-    socket_path: String,           // Đường dẫn file socket (vd: "/tmp/rust_inference.sock")
-    engine: OnnxInferenceEngine,   // Engine dự báo ONNX
-    evaluator: DecisionEvaluator,  // Động cơ đánh giá quy tắc xử lý Decision Evaluator
+    socket_path: String,
+    engine: OnnxInferenceEngine,
+    evaluator: DecisionEvaluator,
+    concurrency: Arc<Semaphore>,
+    max_request_bytes: usize,
 }
 
 impl UdsIpcServer {
-    /// New khởi tạo UdsIpcServer đồng thời tự động nạp cấu hình Policy YAML
-    pub fn new(socket_path: String, engine: OnnxInferenceEngine) -> Self {
-        // Nạp file cấu hình Policy từ configs/policies.yaml (tự động fallback nếu không có file)
-        let evaluator = DecisionEvaluator::new("configs/policies.yaml");
-        Self { socket_path, engine, evaluator }
+    pub fn new(
+        socket_path: String,
+        engine: OnnxInferenceEngine,
+        policy_path: &str,
+        max_concurrency: usize,
+        max_request_bytes: usize,
+    ) -> Result<Self> {
+        if max_concurrency == 0 || max_request_bytes == 0 {
+            return Err(AppError::Config(
+                "IPC concurrency và request limit phải lớn hơn 0".to_string(),
+            ));
+        }
+        Ok(Self {
+            socket_path,
+            engine,
+            evaluator: DecisionEvaluator::new(policy_path)?,
+            concurrency: Arc::new(Semaphore::new(max_concurrency)),
+            max_request_bytes,
+        })
     }
 
-    /// Run khởi chạy vòng lặp async tokio lắng nghe kết nối từ Go API Gateway
     pub async fn run(&self) -> Result<()> {
-        if Path::new(&self.socket_path).exists() {
-            let _ = fs::remove_file(&self.socket_path);
-        }
+        self.run_until_shutdown(std::future::pending::<()>()).await
+    }
 
-        let listener = UnixListener::bind(&self.socket_path).map_err(|e| {
-            AppError::Ipc(format!("Không thể bind Unix Domain Socket tại '{}': {}", self.socket_path, e))
+    pub async fn run_until_shutdown<F>(&self, shutdown: F) -> Result<()>
+    where
+        F: Future<Output = ()>,
+    {
+        self.prepare_socket_path()?;
+        let listener = UnixListener::bind(&self.socket_path).map_err(|err| {
+            AppError::Ipc(format!(
+                "Không thể bind Unix Domain Socket '{}': {err}",
+                self.socket_path
+            ))
         })?;
+        std::fs::set_permissions(&self.socket_path, std::fs::Permissions::from_mode(0o660))?;
 
         info!(
             socket_path = %self.socket_path,
-            "UdsIpcServer đã khởi chạy thành công! Lắng nghe IPC request từ Go API Gateway..."
+            max_request_bytes = self.max_request_bytes,
+            "UDS inference server sẵn sàng"
         );
 
+        tokio::pin!(shutdown);
         loop {
-            match listener.accept().await {
-                Ok((mut stream, _addr)) => {
-                    let engine = self.engine.clone();
-                    let evaluator = self.evaluator.clone();
-                    tokio::spawn(async move {
-                        let mut buffer = [0u8; 4096];
-                        if let Ok(bytes_read) = stream.read(&mut buffer).await {
-                            if bytes_read > 0 {
-                                if let Ok(req) = serde_json::from_slice::<IpcPredictRequest>(&buffer[..bytes_read]) {
-                                    let resp = if !engine.is_available() {
-                                        let evidence_matrix = EvidenceEngine::generate_evidence(&req.features);
-                                        let decision_outcome = evaluator.evaluate(0.0, &evidence_matrix, &req.features);
-                                        IpcPredictResponse {
-                                            status: "UNAVAILABLE".to_string(),
-                                            match_id: req.match_id,
-                                            player_id: req.player_id,
-                                            risk_score: 0.0,
-                                            risk_level: "UNAVAILABLE".to_string(),
-                                            model_version: "UNAVAILABLE".to_string(),
-                                            evidence_matrix,
-                                            decision_outcome: Some(decision_outcome),
-                                        }
-                                    } else {
-                                        let (risk_score, risk_level) = engine.predict(&req.features);
-                                        let evidence_matrix = EvidenceEngine::generate_evidence(&req.features);
-                                        // Thực thi đánh giá Decision Engine dựa trên ML Risk Score, Evidence Matrix và Raw Features
-                                        let decision_outcome = evaluator.evaluate(risk_score, &evidence_matrix, &req.features);
-
-                                        IpcPredictResponse {
-                                            status: "ok".to_string(),
-                                            match_id: req.match_id,
-                                            player_id: req.player_id,
-                                            risk_score,
-                                            risk_level,
-                                            model_version: engine.version(),
-                                            evidence_matrix,
-                                            decision_outcome: Some(decision_outcome),
-                                        }
-                                    };
-
-                                    if let Ok(resp_bytes) = serde_json::to_vec(&resp) {
-                                        let _ = stream.write_all(&resp_bytes).await;
-                                    }
-                                }
-                            }
-                        }
-                    });
+            tokio::select! {
+                _ = &mut shutdown => {
+                    info!("UDS server nhận graceful shutdown");
+                    break;
                 }
-                Err(err) => {
-                    warn!(error = %err, "Lỗi kết nối Unix Domain Socket IPC");
+                accepted = listener.accept() => {
+                    match accepted {
+                        Ok((stream, _)) => {
+                            // Permit được chờ trước khi spawn để task count và memory có bound rõ ràng.
+                            let permit = self.concurrency.clone().acquire_owned().await.map_err(|_| {
+                                AppError::Ipc("IPC concurrency limiter đã đóng".to_string())
+                            })?;
+                            let engine = self.engine.clone();
+                            let evaluator = self.evaluator.clone();
+                            let max_request_bytes = self.max_request_bytes;
+                            tokio::spawn(async move {
+                                let _permit = permit;
+                                if let Err(err) = handle_connection(
+                                    stream,
+                                    engine,
+                                    evaluator,
+                                    max_request_bytes,
+                                ).await {
+                                    warn!(error = %err, "IPC request thất bại");
+                                }
+                            });
+                        }
+                        Err(err) => warn!(error = %err, "Lỗi accept Unix Domain Socket"),
+                    }
                 }
             }
         }
+
+        drop(listener);
+        if Path::new(&self.socket_path).exists() {
+            std::fs::remove_file(&self.socket_path)?;
+        }
+        Ok(())
+    }
+
+    fn prepare_socket_path(&self) -> Result<()> {
+        let path = Path::new(&self.socket_path);
+        if !path.exists() {
+            return Ok(());
+        }
+        let metadata = std::fs::symlink_metadata(path)?;
+        if !metadata.file_type().is_socket() {
+            return Err(AppError::Ipc(format!(
+                "Từ chối ghi đè non-socket path '{}'",
+                self.socket_path
+            )));
+        }
+        std::fs::remove_file(path)?;
+        Ok(())
+    }
+}
+
+async fn handle_connection(
+    stream: UnixStream,
+    engine: OnnxInferenceEngine,
+    evaluator: DecisionEvaluator,
+    max_request_bytes: usize,
+) -> Result<()> {
+    let reader = BufReader::new(stream);
+    let mut limited_reader = reader.take((max_request_bytes + 1) as u64);
+    let mut payload = Vec::new();
+    let bytes_read = timeout(
+        Duration::from_secs(2),
+        limited_reader.read_until(b'\n', &mut payload),
+    )
+    .await
+    .map_err(|_| AppError::Ipc("Timeout khi đọc IPC request".to_string()))??;
+    if bytes_read == 0 {
+        return Err(AppError::Ipc("IPC request rỗng".to_string()));
+    }
+
+    let mut stream = limited_reader.into_inner().into_inner();
+    let response = if payload.len() > max_request_bytes {
+        error_response("", "", "IPC request vượt giới hạn kích thước")
+    } else {
+        match serde_json::from_slice::<IpcPredictRequest>(&payload) {
+            Ok(request) => evaluate_request(request, &engine, &evaluator),
+            Err(_) => error_response("", "", "JSON IPC request không hợp lệ"),
+        }
+    };
+    let mut response_bytes = serde_json::to_vec(&response)?;
+    response_bytes.push(b'\n');
+    timeout(Duration::from_secs(2), stream.write_all(&response_bytes))
+        .await
+        .map_err(|_| AppError::Ipc("Timeout khi ghi IPC response".to_string()))??;
+    Ok(())
+}
+
+fn evaluate_request(
+    request: IpcPredictRequest,
+    engine: &OnnxInferenceEngine,
+    evaluator: &DecisionEvaluator,
+) -> IpcPredictResponse {
+    if request.op != "predict"
+        || request.match_id.trim().is_empty()
+        || request.player_id.trim().is_empty()
+        || request.match_id.len() > 256
+        || request.player_id.len() > 256
+    {
+        return error_response(
+            &request.match_id,
+            &request.player_id,
+            "op hoặc identifier không hợp lệ",
+        );
+    }
+
+    match engine.predict(&request.features) {
+        Ok((risk_score, risk_level)) => {
+            let evidence_matrix = EvidenceEngine::generate_evidence(&request.features);
+            let decision_outcome =
+                evaluator.evaluate(risk_score, &evidence_matrix, &request.features);
+            IpcPredictResponse {
+                status: "ok".to_string(),
+                match_id: request.match_id,
+                player_id: request.player_id,
+                risk_score,
+                risk_level,
+                model_version: engine.version(),
+                evidence_matrix,
+                decision_outcome: Some(decision_outcome),
+                error: None,
+            }
+        }
+        Err(err) => error_response(&request.match_id, &request.player_id, &err.to_string()),
+    }
+}
+
+fn error_response(match_id: &str, player_id: &str, message: &str) -> IpcPredictResponse {
+    IpcPredictResponse {
+        status: "UNAVAILABLE".to_string(),
+        match_id: match_id.to_string(),
+        player_id: player_id.to_string(),
+        risk_score: 0.0,
+        risk_level: "UNAVAILABLE".to_string(),
+        model_version: "UNAVAILABLE".to_string(),
+        evidence_matrix: EvidenceMatrix {
+            top_evidence_features: Vec::new(),
+        },
+        decision_outcome: None,
+        error: Some(message.to_string()),
     }
 }
