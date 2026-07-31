@@ -294,6 +294,17 @@ impl OnnxInferenceEngine {
                 .map_err(|err| {
                     AppError::ModelLoad(format!("Không bật được ONNX optimization: {err}"))
                 })?;
+
+            // Cấu hình GPU CUDA Execution Provider kết hợp CPU Fallback đảm bảo tiêu chuẩn HA Cloud-Native
+            builder = builder
+                .with_execution_providers([
+                    ort::execution_providers::CUDAExecutionProvider::default().build(),
+                    ort::execution_providers::CPUExecutionProvider::default().build(),
+                ])
+                .map_err(|err| {
+                    AppError::ModelLoad(format!("Cấu hình ONNX Execution Providers thất bại: {err}"))
+                })?;
+
             let session = builder.commit_from_file(&model_path).map_err(|err| {
                 AppError::ModelLoad(format!("ONNX model validation thất bại: {err}"))
             })?;
