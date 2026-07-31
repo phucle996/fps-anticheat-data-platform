@@ -1,15 +1,22 @@
 import io
+import hashlib
 import os
+import shutil
+import tempfile
+from pathlib import Path
+from urllib.parse import urlparse
+
 import boto3
 import pandas as pd
+
 from src.config import Config
 
+
 class StorageClient:
-    """StorageClient đóng gói thao tác MinIO S3 SDK nạp Parquet và lưu trữ ONNX Model Bundle"""
-    
+    """MinIO registry + local atomic activation cho model bundle."""
+
     def __init__(self, config: Config):
         self.config = config
-        # Khởi tạo boto3 S3 client với custom endpoint MinIO
         self.s3 = boto3.client(
             "s3",
             endpoint_url=config.minio_endpoint,
@@ -17,55 +24,103 @@ class StorageClient:
             aws_secret_access_key=config.minio_secret_key,
         )
 
-    def load_gold_dataset(self, gold_object_key: str = "") -> pd.DataFrame:
-        """Nạp tập dữ liệu Gold Feature Parquet từ MinIO S3"""
-        if not gold_object_key:
-            # Quét file Parquet mới nhất từ bucket data lake
-            response = self.s3.list_objects_v2(
-                Bucket=self.config.minio_bucket_data,
-                Prefix="gold/player-match-features/"
-            )
-            if "Contents" in response and len(response["Contents"]) > 0:
-                # Lấy file mới nhất
-                gold_object_key = response["Contents"][-1]["Key"]
-
-        if not gold_object_key:
-            raise FileNotFoundError(
-                f"[FAIL-CLOSE] Không tìm thấy bất kỳ Gold Feature Parquet file nào trong s3://{self.config.minio_bucket_data}/gold/player-match-features/! Pipeline FAIL đỏ."
-            )
-
-        print(f"[STORAGE] Đang nạp Gold Feature Parquet từ s3://{self.config.minio_bucket_data}/{gold_object_key}")
+    def load_gold_dataset(self, gold_uri: str = "") -> pd.DataFrame:
+        bucket, object_key = self._resolve_gold_object(gold_uri)
+        print(f"[STORAGE] Nạp Gold Parquet từ s3://{bucket}/{object_key}")
         try:
-            obj = self.s3.get_object(Bucket=self.config.minio_bucket_data, Key=gold_object_key)
-            buffer = io.BytesIO(obj["Body"].read())
-            return pd.read_parquet(buffer)
+            obj = self.s3.get_object(Bucket=bucket, Key=object_key)
+            return pd.read_parquet(io.BytesIO(obj["Body"].read()))
         except Exception as err:
             raise FileNotFoundError(
-                f"[FAIL-CLOSE] Không nạp được Gold Feature Parquet từ s3://{self.config.minio_bucket_data}/{gold_object_key}: {err}"
-            )
+                f"[FAIL-CLOSE] Không nạp được s3://{bucket}/{object_key}: {err}"
+            ) from err
 
-    def upload_model_bundle(self, version: str, bundle_files: dict):
-        """Upload toàn bộ ONNX Model Bundle lên MinIO S3 Model Registry"""
+    def upload_model_bundle(self, version: str, bundle_files: dict) -> str:
         base_prefix = f"pubg-risk/versions/{version}/"
-        
-        # Đảm bảo bucket model registry tồn tại
-        try:
-            self.s3.create_bucket(Bucket=self.config.minio_bucket_model)
-        except Exception:
-            pass
-
+        self.s3.head_bucket(Bucket=self.config.minio_bucket_model)
         for filename, content in bundle_files.items():
+            body = content.encode("utf-8") if isinstance(content, str) else bytes(content)
             key = base_prefix + filename
-            if isinstance(content, str):
-                body = content.encode("utf-8")
-            elif isinstance(content, bytes):
-                body = content
-            else:
-                body = str(content).encode("utf-8")
-
             self.s3.put_object(
                 Bucket=self.config.minio_bucket_model,
                 Key=key,
-                Body=body
+                Body=body,
             )
-            print(f"[STORAGE SUCCESS] Uploaded artifact -> s3://{self.config.minio_bucket_model}/{key}")
+            print(f"[STORAGE] Uploaded s3://{self.config.minio_bucket_model}/{key}")
+        return f"s3://{self.config.minio_bucket_model}/{base_prefix}"
+
+    def activate_local_bundle(self, version: str, bundle_files: dict) -> Path:
+        model_root = Path(self.config.model_dir)
+        versions_dir = model_root / "versions"
+        versions_dir.mkdir(parents=True, exist_ok=True)
+        final_dir = versions_dir / version
+
+        # Build trong staging cùng filesystem rồi rename; inference không bao giờ
+        # quan sát bundle dở dang. Duplicate cùng version chỉ thay desired state.
+        staging = Path(tempfile.mkdtemp(prefix=f".{version}-", dir=versions_dir))
+        try:
+            for filename, content in bundle_files.items():
+                destination = staging / filename
+                body = content.encode("utf-8") if isinstance(content, str) else bytes(content)
+                with destination.open("wb") as output:
+                    output.write(body)
+                    output.flush()
+                    os.fsync(output.fileno())
+
+            if final_dir.exists():
+                existing_model = final_dir / "model.onnx"
+                expected_model = bytes(bundle_files["model.onnx"])
+                existing_checksum = (
+                    hashlib.sha256(existing_model.read_bytes()).hexdigest()
+                    if existing_model.is_file()
+                    else ""
+                )
+                expected_checksum = hashlib.sha256(expected_model).hexdigest()
+                if existing_checksum != expected_checksum:
+                    raise RuntimeError(
+                        f"[FAIL-CLOSE] Model version collision cho '{version}'"
+                    )
+                shutil.rmtree(staging)
+            else:
+                os.replace(staging, final_dir)
+
+            next_link = model_root / ".current-next"
+            current_link = model_root / "current"
+            if next_link.exists() or next_link.is_symlink():
+                next_link.unlink()
+            next_link.symlink_to(Path("versions") / version, target_is_directory=True)
+            os.replace(next_link, current_link)
+            return current_link
+        finally:
+            if staging.exists():
+                shutil.rmtree(staging)
+
+    def _resolve_gold_object(self, gold_uri: str) -> tuple[str, str]:
+        if gold_uri:
+            parsed = urlparse(gold_uri)
+            if parsed.scheme != "s3" or not parsed.netloc or not parsed.path.lstrip("/"):
+                raise ValueError("[FAIL-CLOSE] object_uri phải có dạng s3://bucket/key")
+            if parsed.netloc != self.config.minio_bucket_data:
+                # Event Kafka là trust boundary; không cho phép đọc bucket tùy ý
+                # bằng credential của ML worker.
+                raise ValueError(
+                    f"[FAIL-CLOSE] Bucket '{parsed.netloc}' không được phép cho Gold input"
+                )
+            key = parsed.path.lstrip("/")
+            if not key.startswith("gold/player-match-features/"):
+                raise ValueError("[FAIL-CLOSE] Gold object nằm ngoài prefix cho phép")
+            return parsed.netloc, key
+
+        response = self.s3.list_objects_v2(
+            Bucket=self.config.minio_bucket_data,
+            Prefix="gold/player-match-features/",
+        )
+        candidates = [
+            item
+            for item in response.get("Contents", [])
+            if item["Key"].endswith((".parquet", ".csv"))
+        ]
+        if not candidates:
+            raise FileNotFoundError("[FAIL-CLOSE] Không tìm thấy Gold dataset")
+        newest = max(candidates, key=lambda item: item["LastModified"])
+        return self.config.minio_bucket_data, newest["Key"]

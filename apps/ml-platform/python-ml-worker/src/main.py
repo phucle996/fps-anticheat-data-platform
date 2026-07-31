@@ -1,107 +1,172 @@
-import sys
+import hashlib
 import json
+import signal
 import time
 from datetime import datetime, timezone
+from threading import Event
+
 from src.config import Config
+from src.onnx_exporter import ONNXExporter
 from src.storage import StorageClient
 from src.trainer import ModelTrainer
-from src.onnx_exporter import ONNXExporter
 
-def run_pipeline(config: Config, storage: StorageClient, gold_uri: str = ""):
-    """Thực thi toàn bộ luồng pipeline: Load Gold -> Train -> Export ONNX -> Upload S3 -> Publish Event"""
-    print(f"\n=================================================================")
-    print(f"[ML WORKER PIPELINE] Kích hoạt lúc {datetime.now(timezone.utc).isoformat()}")
-    print(f"=================================================================")
 
-    # 1. Nạp dữ liệu Gold Feature Parquet
+def _model_version(payload: dict) -> str:
+    event_id = payload["event_id"]
+    checksum = payload["checksum_sha256"]
+    # Stable version makes Kafka redelivery idempotent at the model registry.
+    return f"v-{hashlib.sha256(f'{event_id}|{checksum}'.encode()).hexdigest()[:16]}"
+
+
+def _validate_gold_event(payload: dict) -> None:
+    if payload.get("schema_version") != "1.0":
+        raise ValueError("[FAIL-CLOSE] Gold event schema_version không được hỗ trợ")
+    if payload.get("op") != "data.dataset.gold.ready":
+        raise ValueError("[FAIL-CLOSE] Gold event op không hợp lệ")
+    event_id = payload.get("event_id", "")
+    checksum = payload.get("checksum_sha256", "")
+    object_uri = payload.get("object_uri", "")
+    if len(event_id) != 64 or any(char not in "0123456789abcdef" for char in event_id):
+        raise ValueError("[FAIL-CLOSE] Gold event_id phải là SHA-256 hex")
+    if len(checksum) != 64 or any(char not in "0123456789abcdef" for char in checksum):
+        raise ValueError("[FAIL-CLOSE] Gold checksum_sha256 phải là SHA-256 hex")
+    if not object_uri.startswith("s3://"):
+        raise ValueError("[FAIL-CLOSE] Gold object_uri phải là s3:// URI")
+
+
+def run_pipeline(config: Config, storage: StorageClient, gold_uri: str, version: str):
+    print(
+        f"[ML PIPELINE] Bắt đầu {version} lúc "
+        f"{datetime.now(timezone.utc).isoformat()}",
+        flush=True,
+    )
     df_gold = storage.load_gold_dataset(gold_uri)
-    print(f"[DATA INFRA] Nạp thành công Gold Feature Dataset ({len(df_gold)} rows)")
-
-    # 2. Huấn luyện các mô hình Machine Learning scikit-learn
-    trainer = ModelTrainer()
-    model, metrics = trainer.train_pipeline(df_gold)
-
-    # 3. Đóng gói ONNX Model Bundle
-    version = "v1"
+    if len(df_gold) == 0:
+        raise ValueError("[FAIL-CLOSE] Gold dataset rỗng")
+    model, metrics = ModelTrainer().train_pipeline(df_gold)
     bundle_files = ONNXExporter.export_bundle(model, metrics, version=version)
+    bundle_uri = storage.upload_model_bundle(version, bundle_files)
+    storage.activate_local_bundle(version, bundle_files)
+    return version, metrics, bundle_uri
 
-    # 4. Upload toàn bộ artifacts lên MinIO S3 Model Registry
-    storage.upload_model_bundle(version, bundle_files)
 
-    # 5. Thông báo kết quả hoàn tất
-    print(f"[ML WORKER SUCCESS] Đã phát tín hiệu pubg.v1.ml.model.ready cho Model Version '{version}'!")
-    return version, metrics
+def _publish(producer, topic: str, event: dict) -> None:
+    future = producer.send(topic, event)
+    future.get(timeout=30)
+
+
+def _publish_dlq(producer, topic: str, msg, error: Exception) -> None:
+    event = {
+        "schema_version": "1.0",
+        "op": "ml.dataset.gold.ready.dlq",
+        "event_id": hashlib.sha256(
+            f"{msg.topic}|{msg.partition}|{msg.offset}".encode()
+        ).hexdigest(),
+        "source_topic": msg.topic,
+        "partition": msg.partition,
+        "offset": msg.offset,
+        "payload": msg.value,
+        "error": str(error)[:2000],
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    _publish(producer, topic, event)
+
 
 def main():
-    """Hàm main lắng nghe Kafka Events và khởi chạy Event-driven ML Pipeline"""
     config = Config.from_env()
     storage = StorageClient(config)
+    stop = Event()
+    signal.signal(signal.SIGTERM, lambda *_: stop.set())
+    signal.signal(signal.SIGINT, lambda *_: stop.set())
 
-    print(f"[STARTUP] Python ML Worker Daemon khởi chạy (Kafka: {config.kafka_brokers})")
+    from kafka import KafkaConsumer, KafkaProducer
 
-    # Thử kết nối Kafka Consumer tại startup
-    # Nếu không kết nối được (Kafka chưa sẵn sàng) → fallback sang dev mode một lần
-    # Nếu kết nối OK → chạy event loop bình thường với manual commit
+    brokers = config.kafka_brokers.split(",")
+    consumer = KafkaConsumer(
+        config.kafka_topic_gold,
+        bootstrap_servers=brokers,
+        value_deserializer=lambda value: json.loads(value.decode("utf-8")),
+        auto_offset_reset="earliest",
+        enable_auto_commit=False,
+        group_id=config.kafka_group_id,
+        consumer_timeout_ms=1000,
+        max_poll_records=1,
+        max_partition_fetch_bytes=1024 * 1024,
+    )
+    producer = KafkaProducer(
+        bootstrap_servers=brokers,
+        value_serializer=lambda value: json.dumps(
+            value, separators=(",", ":"), sort_keys=True
+        ).encode("utf-8"),
+        acks="all",
+        retries=5,
+        max_in_flight_requests_per_connection=1,
+        compression_type="gzip",
+    )
+
+    print(f"[STARTUP] ML worker lắng nghe {config.kafka_topic_gold}", flush=True)
     try:
-        from kafka import KafkaConsumer, KafkaProducer
-        consumer = KafkaConsumer(
-            config.kafka_topic_gold,
-            bootstrap_servers=config.kafka_brokers.split(","),
-            value_deserializer=lambda m: json.loads(m.decode("utf-8")),
-            auto_offset_reset="earliest",
-            # Manual commit: chỉ commit sau khi pipeline + publish hoàn thành thành công
-            # Tránh mất event nếu process crash giữa chừng sau auto-commit
-            enable_auto_commit=False,
-            group_id="python-ml-worker-group"
-        )
-        producer = KafkaProducer(
-            bootstrap_servers=config.kafka_brokers.split(","),
-            value_serializer=lambda v: json.dumps(v).encode("utf-8")
-        )
-        print(f"[KAFKA CONNECTED] Lắng nghe topic '{config.kafka_topic_gold}'...")
+        while not stop.is_set():
+            records = consumer.poll(timeout_ms=1000, max_records=1)
+            if not records:
+                continue
+            for messages in records.values():
+                for msg in messages:
+                    last_error = None
+                    for attempt in range(config.ml_max_retries):
+                        try:
+                            payload = msg.value
+                            _validate_gold_event(payload)
+                            version = _model_version(payload)
+                            version, metrics, bundle_uri = run_pipeline(
+                                config, storage, payload["object_uri"], version
+                            )
+                            _publish(
+                                producer,
+                                config.kafka_topic_model,
+                                {
+                                    "schema_version": "1.0",
+                                    "event_id": hashlib.sha256(
+                                        f"model.ready|{payload['event_id']}|{version}".encode()
+                                    ).hexdigest(),
+                                    "op": "ml.model.ready",
+                                    "operation_id": payload["event_id"],
+                                    "model_name": "pubg-risk",
+                                    "model_version": version,
+                                    "feature_version": "kill-event-player-match-v1",
+                                    "bundle_uri": bundle_uri,
+                                    "metrics": metrics,
+                                    "created_at": datetime.now(timezone.utc).isoformat(),
+                                },
+                            )
+                            # Commit only after S3, local activation and model.ready ACK.
+                            consumer.commit()
+                            last_error = None
+                            break
+                        except Exception as error:
+                            last_error = error
+                            print(
+                                f"[RETRY] partition={msg.partition} offset={msg.offset} "
+                                f"attempt={attempt + 1}/{config.ml_max_retries}: {error}",
+                                flush=True,
+                            )
+                            if attempt + 1 < config.ml_max_retries:
+                                time.sleep(min(60, 2 ** attempt))
 
-        # Event loop: xử lý tuần tự — mỗi event phải được commit thủ công sau pipeline thành công
-        for msg in consumer:
-            payload = msg.value
-            print(f"[KAFKA EVENT] Nhận tín hiệu dataset.gold.ready: {payload}")
-            gold_uri = payload.get("object_uri", "")
+                    if last_error is not None:
+                        # A poison event is committed only after durable DLQ ACK.
+                        _publish_dlq(producer, config.kafka_topic_ml_dlq, msg, last_error)
+                        consumer.commit()
+                        print(
+                            f"[DLQ] Đã ghi durable event partition={msg.partition} "
+                            f"offset={msg.offset}",
+                            flush=True,
+                        )
+    finally:
+        producer.flush(timeout=30)
+        consumer.close()
+        producer.close()
 
-            try:
-                # Toàn bộ pipeline phải hoàn thành TRƯỚC khi commit offset
-                version, metrics = run_pipeline(config, storage, gold_uri)
-
-                # Publish event ml.model.ready
-                model_event = {
-                    "op": "ml.model.ready",
-                    "model_name": "pubg-risk",
-                    "model_version": version,
-                    "feature_version": "player-match-feature-v1",
-                    "bundle_uri": f"s3://{config.minio_bucket_model}/pubg-risk/versions/{version}/",
-                    "metrics": metrics,
-                    "created_at": datetime.now(timezone.utc).isoformat()
-                }
-                # flush=True để đảm bảo message đã được gửi trước khi commit offset
-                producer.send(config.kafka_topic_model, model_event)
-                producer.flush()
-                print(f"[KAFKA EVENT PUBLISHED] Đã gửi thông điệp ml.model.ready sang topic '{config.kafka_topic_model}'")
-
-                # Commit offset CHỈ sau khi pipeline + publish đều thành công
-                # Nếu process crash trước dòng này → Kafka redeliver → pipeline chạy lại (idempotent)
-                consumer.commit()
-                print(f"[KAFKA COMMIT] Offset committed thành công cho msg partition={msg.partition} offset={msg.offset}")
-
-            except Exception as pipeline_err:
-                # Pipeline error (training fail, S3 upload fail, v.v.) → log rõ, KHÔNG commit offset
-                # Kafka sẽ redeliver event này sau khi restart — không bị mất
-                print(f"[ERROR] Pipeline thất bại cho event {payload}: {pipeline_err}", flush=True)
-                # Không re-raise để consumer loop tiếp tục với event tiếp theo
-                # Trong production nên đẩy event lỗi vào DLQ
-
-    except Exception as kafka_startup_err:
-        # Lỗi kết nối Kafka tại startup (Kafka chưa sẵn sàng, sai địa chỉ, v.v.)
-        # Chỉ fallback dev mode trong trường hợp này — KHÔNG che lỗi pipeline thật
-        print(f"[WARN] Kafka connection error tại startup ({kafka_startup_err}). Chạy trực tiếp 1 lần cho Dev Engine Mode...")
-        run_pipeline(config, storage)
 
 if __name__ == "__main__":
     main()

@@ -115,7 +115,13 @@ class ONNXExporter:
             import onnx
 
             initial_type = [("float_input", FloatTensorType([None, len(feature_cols)]))]
-            onnx_model = convert_sklearn(model, initial_types=initial_type)
+            # ZipMap tạo map output khó tối ưu ở Rust; tensor [batch, classes]
+            # giữ contract byte/shape ổn định giữa Python và ONNX Runtime.
+            onnx_model = convert_sklearn(
+                model,
+                initial_types=initial_type,
+                options={id(model): {"zipmap": False}},
+            )
 
             # Validate ONNX model hợp lệ
             onnx.checker.check_model(onnx_model)
