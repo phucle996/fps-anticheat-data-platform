@@ -22,8 +22,7 @@ fn test_generate_invalid_path_hive_format() {
 
     let path = MinioWriter::generate_invalid_path(batch_id, ingest_time);
     assert_eq!(
-        path,
-        "bronze/invalid/year=2026/month=07/day=28/pubg_invalid_batch-err999.json",
+        path, "bronze/invalid/year=2026/month=07/day=28/pubg_invalid_batch-err999.json",
         "Cấu trúc đường dẫn Invalid Records phải tuân thủ chuẩn Hive Partitioning"
     );
 }

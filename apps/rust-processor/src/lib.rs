@@ -5,16 +5,19 @@ pub mod error;
 pub mod ingest;
 pub mod storage;
 pub mod transform;
+pub mod transport;
 pub mod worker;
 
 pub use app::StreamProcessorApp;
 pub use config::Config;
 pub use domain::*;
 pub use error::{AppError, Result};
-pub use ingest::{BatchAccumulator, BatchAccumulatorConfig, CompletedBatch, ConsumedMessage, KafkaConsumer};
+pub use ingest::{
+    BatchAccumulator, BatchAccumulatorConfig, CompletedBatch, ConsumedMessage, KafkaConsumer,
+};
 pub use storage::{BatchManifest, MinioWriter, PartitionOffsetMetadata};
 pub use transform::{
-    ArrowConverter, DeduplicateOutcome, EventDeduplicator, EventValidator, InvalidEnvelopeRecord, ParquetSerializer,
-    ValidationOutcome,
+    ArrowConverter, DeduplicateOutcome, EventDeduplicator, EventValidator, InvalidEnvelopeRecord,
+    ParquetSerializer, ValidationOutcome,
 };
 pub use worker::{CircuitBreakerState, RDynamicWorkerPool, RWorkerSpawner, ResourceCircuitBreaker};

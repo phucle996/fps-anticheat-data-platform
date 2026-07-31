@@ -5,16 +5,19 @@ use std::env;
 #[derive(Debug, Clone)]
 #[allow(dead_code)]
 pub struct Config {
-    pub kafka_brokers: String,      // Danh sách Kafka brokers (vd: "localhost:9092")
-    pub kafka_raw_topic: String,    // Raw Kafka topic (vd: "pubg.v1.player-stat.raw")
-    pub kafka_group_id: String,     // Consumer group ID (vd: "rust-processor-group")
-    pub minio_endpoint: String,     // Endpoint MinIO S3 (vd: "http://localhost:9000")
-    pub minio_bucket: String,       // Bucket Data Lake MinIO (vd: "fps-anticheat-datalake")
-    pub minio_access_key: String,   // Access Key của MinIO S3
-    pub minio_secret_key: String,   // Secret Key của MinIO S3
-    pub batch_size: usize,          // Ngưỡng số lượng bản ghi cho mỗi batch (vd: 1000)
-    pub flush_interval_ms: u64,     // Ngưỡng thời gian flush batch theo ms (vd: 1000)
-    pub r_max_workers: usize,       // Số lượng R Worker song song tối đa
+    pub kafka_brokers: String, // Danh sách Kafka brokers (vd: "localhost:9092")
+    pub kafka_raw_topic: String, // Raw Kafka topic (vd: "pubg.v1.player-stat.raw")
+    pub kafka_gold_ready_topic: String, // Durable signal sau khi Gold output đã ghi thành công
+    pub kafka_group_id: String, // Consumer group ID (vd: "rust-processor-group")
+    pub minio_endpoint: String, // Endpoint MinIO S3 (vd: "http://localhost:9000")
+    pub minio_bucket: String,  // Bucket Data Lake MinIO (vd: "fps-anticheat-datalake")
+    pub minio_access_key: String, // Access Key của MinIO S3
+    pub minio_secret_key: String, // Secret Key của MinIO S3
+    pub batch_size: usize,     // Ngưỡng số lượng bản ghi cho mỗi batch (vd: 1000)
+    pub flush_interval_ms: u64, // Ngưỡng thời gian flush batch theo ms (vd: 1000)
+    pub r_max_workers: usize,  // Số lượng R Worker song song tối đa
+    pub r_worker_timeout_seconds: u64, // Deadline cứng cho một R batch
+    pub max_message_bytes: usize, // Giới hạn payload Kafka được giữ trong bộ nhớ/DLQ
 }
 
 impl Config {
@@ -23,6 +26,7 @@ impl Config {
         // --- Biến bắt buộc: Không tồn tại hoặc rỗng → Fail-Close ngay lập tức ---
         let kafka_brokers = Self::get_required_env("KAFKA_BROKERS")?;
         let kafka_raw_topic = Self::get_required_env("KAFKA_RAW_TOPIC")?;
+        let kafka_gold_ready_topic = Self::get_required_env("KAFKA_GOLD_READY_TOPIC")?;
         let kafka_group_id = Self::get_required_env("KAFKA_GROUP_ID")?;
         let minio_endpoint = Self::get_required_env("MINIO_ENDPOINT")?;
         let minio_bucket = Self::get_required_env("MINIO_BUCKET")?;
@@ -48,10 +52,19 @@ impl Config {
             .map(|n| n.get())
             .unwrap_or(4);
         let r_max_workers = Self::parse_optional_usize("R_MAX_WORKERS", default_cpus)?;
+        let r_worker_timeout_seconds = Self::parse_optional_u64("R_WORKER_TIMEOUT_SECONDS", 900)?;
+        let max_message_bytes = Self::parse_optional_usize("KAFKA_MAX_MESSAGE_BYTES", 1_048_576)?;
+
+        if batch_size == 0 || flush_interval_ms == 0 || r_max_workers == 0 {
+            return Err(AppError::Config(
+                "BATCH_SIZE, FLUSH_INTERVAL_MS và R_MAX_WORKERS phải lớn hơn 0".to_string(),
+            ));
+        }
 
         Ok(Self {
             kafka_brokers,
             kafka_raw_topic,
+            kafka_gold_ready_topic,
             kafka_group_id,
             minio_endpoint,
             minio_bucket,
@@ -60,6 +73,8 @@ impl Config {
             batch_size,
             flush_interval_ms,
             r_max_workers,
+            r_worker_timeout_seconds,
+            max_message_bytes,
         })
     }
 

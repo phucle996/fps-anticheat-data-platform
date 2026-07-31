@@ -1,8 +1,11 @@
 use crate::config::Config;
 use crate::error::{AppError, Result};
-use crate::ingest::{BatchAccumulator, BatchAccumulatorConfig, CompletedBatch, ConsumeOutcome, KafkaConsumer};
+use crate::ingest::{
+    BatchAccumulator, BatchAccumulatorConfig, CompletedBatch, ConsumeOutcome, KafkaConsumer,
+};
 use crate::storage::{BatchManifest, MinioWriter, PartitionOffsetMetadata};
 use crate::transform::{ArrowConverter, EventDeduplicator, EventValidator, ParquetSerializer};
+use crate::transport::KafkaEventProducer;
 use crate::worker::RDynamicWorkerPool;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -11,11 +14,12 @@ use tracing::{error, info, warn};
 
 /// StreamProcessorApp đóng gói toàn bộ quy trình Ingest -> Validate -> Dedup -> Arrow -> Parquet -> MinIO -> Offset Commit -> Dynamic R Pool
 pub struct StreamProcessorApp {
-    config: Config,                    // Cấu hình ứng dụng
-    consumer: KafkaConsumer,           // Bộ đọc tin nhắn Kafka
-    accumulator: BatchAccumulator,     // Bộ gom batch dữ liệu RAM
-    writer: Arc<MinioWriter>,          // Bộ ghi dữ liệu MinIO S3
-    r_pool: RDynamicWorkerPool,        // Dynamic R Worker Pool Daemon
+    config: Config,                // Cấu hình ứng dụng
+    consumer: KafkaConsumer,       // Bộ đọc tin nhắn Kafka
+    accumulator: BatchAccumulator, // Bộ gom batch dữ liệu RAM
+    writer: Arc<MinioWriter>,      // Bộ ghi dữ liệu MinIO S3
+    r_pool: RDynamicWorkerPool,    // Dynamic R Worker Pool Daemon
+    event_producer: KafkaEventProducer,
 }
 
 impl StreamProcessorApp {
@@ -24,7 +28,12 @@ impl StreamProcessorApp {
         let consumer = KafkaConsumer::new(&config)?;
         let writer = MinioWriter::new(&config)?;
         let writer = Arc::new(writer);
-        let r_pool = RDynamicWorkerPool::new(config.r_max_workers, writer.clone());
+        let r_pool = RDynamicWorkerPool::new(
+            config.r_max_workers,
+            writer.clone(),
+            Duration::from_secs(config.r_worker_timeout_seconds),
+        );
+        let event_producer = KafkaEventProducer::new(&config)?;
 
         let accum_config = BatchAccumulatorConfig {
             max_records: config.batch_size,
@@ -44,6 +53,7 @@ impl StreamProcessorApp {
             accumulator,
             writer,
             r_pool,
+            event_producer,
         })
     }
 
@@ -80,13 +90,20 @@ impl StreamProcessorApp {
                             }
                         }
                         Ok(ConsumeOutcome::Invalid(invalid_msg)) => {
-                            self.accumulator.track_partition_offset(invalid_msg.partition, invalid_msg.offset);
+                            let partition = invalid_msg.partition;
+                            let offset = invalid_msg.offset;
+                            let reason = invalid_msg.error_reason.clone();
+                            if let Some(completed_batch) = self.accumulator.push_invalid(invalid_msg) {
+                                if let Err(err) = self.process_completed_batch(completed_batch).await {
+                                    error!(error = %err, "Malformed batch DLQ thất bại — ngắt loop để redeliver");
+                                    return Err(err);
+                                }
+                            }
                             warn!(
-                                topic = %invalid_msg.topic,
-                                partition = invalid_msg.partition,
-                                offset = invalid_msg.offset,
-                                reason = %invalid_msg.error_reason,
-                                "Bản ghi Kafka hỏng (Malformed/Empty), đã ghi nhận offset để commit DLQ"
+                                partition = partition,
+                                offset = offset,
+                                reason = %reason,
+                                "Bản ghi Kafka hỏng đã được giữ trong bounded DLQ batch"
                             );
                         }
                         Err(err) => {
@@ -111,21 +128,36 @@ impl StreamProcessorApp {
         Ok(())
     }
 
-    /// process_completed_batch xử lý 1 CompletedBatch theo quy trình: S3 Parquet → Manifest → Offset Commit → R worker
+    /// Durability order: DLQ/Bronze → manifest → Silver/Gold → gold.ready → offset commit.
     pub async fn process_completed_batch(&self, completed_batch: CompletedBatch) -> Result<()> {
+        let malformed_count = completed_batch.malformed_messages.len();
+        if malformed_count > 0 {
+            let path = MinioWriter::generate_malformed_path(&completed_batch.batch_id, "now");
+            self.writer
+                .upload_malformed_messages(&path, &completed_batch.malformed_messages)
+                .await?;
+        }
+
         let val_outcome = EventValidator::validate_batch(completed_batch.events);
 
         if !val_outcome.invalid_records.is_empty() {
             let invalid_path = MinioWriter::generate_invalid_path(&completed_batch.batch_id, "now");
-            self.writer.upload_invalid_records(&invalid_path, &val_outcome.invalid_records).await.map_err(|e| {
-                AppError::Storage(format!("Fail-Close: Upload invalid records DLQ thất bại: {}", e))
-            })?;
+            self.writer
+                .upload_invalid_records(&invalid_path, &val_outcome.invalid_records)
+                .await
+                .map_err(|e| {
+                    AppError::Storage(format!(
+                        "Fail-Close: Upload invalid records DLQ thất bại: {}",
+                        e
+                    ))
+                })?;
         }
 
         let dedup_outcome = EventDeduplicator::deduplicate_batch(val_outcome.valid_records);
 
         if !dedup_outcome.unique_records.is_empty() {
-            let record_batch = ArrowConverter::events_to_record_batch(&dedup_outcome.unique_records)?;
+            let record_batch =
+                ArrowConverter::events_to_record_batch(&dedup_outcome.unique_records)?;
             let parquet_bytes = ParquetSerializer::record_batch_to_parquet_bytes(&record_batch)?;
 
             let sample_time = "now";
@@ -135,7 +167,10 @@ impl StreamProcessorApp {
                 MinioWriter::generate_bronze_path(&completed_batch.batch_id, sample_time)
             };
 
-            let checksum = self.writer.upload_parquet(&bronze_path, parquet_bytes).await?;
+            let checksum = self
+                .writer
+                .upload_parquet(&bronze_path, parquet_bytes)
+                .await?;
 
             let manifest = create_manifest(
                 &self.config.kafka_raw_topic,
@@ -143,19 +178,32 @@ impl StreamProcessorApp {
                 &completed_batch.partition_offsets,
                 completed_batch.record_count,
                 val_outcome.valid_count,
-                val_outcome.invalid_count,
+                val_outcome.invalid_count + malformed_count,
                 dedup_outcome.duplicate_count,
                 &bronze_path,
                 &checksum,
             );
-            let manifest_path = MinioWriter::generate_manifest_path(&completed_batch.batch_id, sample_time);
-            self.writer.upload_manifest(&manifest_path, &manifest).await?;
+            let manifest_path =
+                MinioWriter::generate_manifest_path(&completed_batch.batch_id, sample_time);
+            self.writer
+                .upload_manifest(&manifest_path, &manifest)
+                .await?;
 
-            // Commit offset — nếu lỗi return Err ngay để Fail-Fast ngắt loop
-            self.consumer.commit_partition_offsets(&completed_batch.partition_offsets).map_err(|e| {
-                AppError::Kafka(format!("Fail-Close: Commit partition offsets thất bại: {}", e))
-            })?;
+            let r_result = self.r_pool.process_manifest(&manifest_path).await?;
+            let gold_events = self
+                .event_producer
+                .publish_gold_ready(&completed_batch.batch_id, &r_result)
+                .await?;
 
+            // Offset chỉ được advance sau mọi durable side effect/projection của batch.
+            self.consumer
+                .commit_partition_offsets(&completed_batch.partition_offsets)
+                .map_err(|e| {
+                    AppError::Kafka(format!(
+                        "Fail-Close: Commit partition offsets thất bại: {}",
+                        e
+                    ))
+                })?;
             info!(
                 batch_id = %completed_batch.batch_id,
                 valid_count = val_outcome.valid_count,
@@ -163,18 +211,25 @@ impl StreamProcessorApp {
                 checksum = %checksum,
                 bronze_path = %bronze_path,
                 manifest_path = %manifest_path,
-                "Hoàn tất ordered write (S3 Parquet → Manifest → Offset Commit) cho batch"
+                gold_events = gold_events,
+                "Hoàn tất ordered durable processing cho batch"
             );
-
-            self.r_pool.dispatch_manifest(manifest_path);
-
-        } else if val_outcome.invalid_count > 0 || dedup_outcome.duplicate_count > 0 {
-            self.consumer.commit_partition_offsets(&completed_batch.partition_offsets).map_err(|e| {
-                AppError::Kafka(format!("Fail-Close: Commit invalid-only partition offsets thất bại: {}", e))
-            })?;
+        } else if val_outcome.invalid_count > 0
+            || dedup_outcome.duplicate_count > 0
+            || malformed_count > 0
+        {
+            self.consumer
+                .commit_partition_offsets(&completed_batch.partition_offsets)
+                .map_err(|e| {
+                    AppError::Kafka(format!(
+                        "Fail-Close: Commit invalid-only partition offsets thất bại: {}",
+                        e
+                    ))
+                })?;
             info!(
                 batch_id = %completed_batch.batch_id,
                 invalid_count = val_outcome.invalid_count,
+                malformed_count = malformed_count,
                 duplicate_count = dedup_outcome.duplicate_count,
                 "Đã commit Kafka offsets cho batch 100% invalid/duplicate"
             );

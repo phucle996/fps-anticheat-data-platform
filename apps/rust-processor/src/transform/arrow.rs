@@ -33,6 +33,14 @@ impl ArrowConverter {
             Field::new("victim_position_y", DataType::Float64, true),
             Field::new("event_time_seconds", DataType::Float64, true),
             Field::new("weapon", DataType::Utf8, true),
+            Field::new("kills", DataType::Int64, true),
+            Field::new("damage_dealt", DataType::Float64, true),
+            Field::new("headshot_kills", DataType::Int64, true),
+            Field::new("walk_distance", DataType::Float64, true),
+            Field::new("ride_distance", DataType::Float64, true),
+            Field::new("swim_distance", DataType::Float64, true),
+            Field::new("survival_duration", DataType::Float64, true),
+            Field::new("win_place_perc", DataType::Float64, true),
         ]))
     }
 
@@ -63,6 +71,14 @@ impl ArrowConverter {
         let mut victim_y_vec = Vec::with_capacity(len);
         let mut event_time_sec_vec = Vec::with_capacity(len);
         let mut weapon_vec = Vec::with_capacity(len);
+        let mut kills_vec = Vec::with_capacity(len);
+        let mut damage_dealt_vec = Vec::with_capacity(len);
+        let mut headshot_kills_vec = Vec::with_capacity(len);
+        let mut walk_distance_vec = Vec::with_capacity(len);
+        let mut ride_distance_vec = Vec::with_capacity(len);
+        let mut swim_distance_vec = Vec::with_capacity(len);
+        let mut survival_duration_vec = Vec::with_capacity(len);
+        let mut win_place_perc_vec = Vec::with_capacity(len);
 
         for e in events {
             match e {
@@ -89,6 +105,15 @@ impl ArrowConverter {
                     victim_y_vec.push(k.payload.victim_position_y);
                     event_time_sec_vec.push(k.payload.event_time_seconds);
                     weapon_vec.push(k.payload.weapon.as_deref());
+
+                    kills_vec.push(None);
+                    damage_dealt_vec.push(None);
+                    headshot_kills_vec.push(None);
+                    walk_distance_vec.push(None);
+                    ride_distance_vec.push(None);
+                    swim_distance_vec.push(None);
+                    survival_duration_vec.push(None);
+                    win_place_perc_vec.push(None);
                 }
                 AnyEnvelope::PlayerStat(p) => {
                     event_id_vec.push(p.event_id.as_str());
@@ -111,8 +136,19 @@ impl ArrowConverter {
                     killer_y_vec.push(None);
                     victim_x_vec.push(None);
                     victim_y_vec.push(None);
-                    event_time_sec_vec.push(Some(p.payload.survival_duration));
+                    event_time_sec_vec.push(None);
                     weapon_vec.push(None);
+
+                    // Hai envelope dùng chung Bronze schema; nullable columns giữ nguyên
+                    // ranh giới contract thay vì giả lập player-stat thành kill telemetry.
+                    kills_vec.push(Some(p.payload.kills));
+                    damage_dealt_vec.push(Some(p.payload.damage_dealt));
+                    headshot_kills_vec.push(Some(p.payload.headshot_kills));
+                    walk_distance_vec.push(Some(p.payload.walk_distance));
+                    ride_distance_vec.push(Some(p.payload.ride_distance));
+                    swim_distance_vec.push(Some(p.payload.swim_distance));
+                    survival_duration_vec.push(Some(p.payload.survival_duration));
+                    win_place_perc_vec.push(p.payload.win_place_perc);
                 }
             }
         }
@@ -139,6 +175,14 @@ impl ArrowConverter {
         let arr_victim_y = Float64Array::from(victim_y_vec);
         let arr_event_time_sec = Float64Array::from(event_time_sec_vec);
         let arr_weapon = StringArray::from(weapon_vec);
+        let arr_kills = Int64Array::from(kills_vec);
+        let arr_damage_dealt = Float64Array::from(damage_dealt_vec);
+        let arr_headshot_kills = Int64Array::from(headshot_kills_vec);
+        let arr_walk_distance = Float64Array::from(walk_distance_vec);
+        let arr_ride_distance = Float64Array::from(ride_distance_vec);
+        let arr_swim_distance = Float64Array::from(swim_distance_vec);
+        let arr_survival_duration = Float64Array::from(survival_duration_vec);
+        let arr_win_place_perc = Float64Array::from(win_place_perc_vec);
 
         RecordBatch::try_new(
             schema,
@@ -164,6 +208,14 @@ impl ArrowConverter {
                 Arc::new(arr_victim_y),
                 Arc::new(arr_event_time_sec),
                 Arc::new(arr_weapon),
+                Arc::new(arr_kills),
+                Arc::new(arr_damage_dealt),
+                Arc::new(arr_headshot_kills),
+                Arc::new(arr_walk_distance),
+                Arc::new(arr_ride_distance),
+                Arc::new(arr_swim_distance),
+                Arc::new(arr_survival_duration),
+                Arc::new(arr_win_place_perc),
             ],
         )
         .map_err(|e| AppError::Arrow(format!("Khởi tạo Arrow RecordBatch thất bại: {}", e)))

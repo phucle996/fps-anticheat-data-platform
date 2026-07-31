@@ -1,10 +1,12 @@
-use rust_processor::domain::{EventEnvelope, PlayerStatPayload, SourceMetadata};
-use rust_processor::ingest::{BatchAccumulator, BatchAccumulatorConfig, ConsumedMessage};
+use rust_processor::domain::{AnyEnvelope, EventEnvelope, PlayerStatPayload, SourceMetadata};
+use rust_processor::ingest::{
+    BatchAccumulator, BatchAccumulatorConfig, ConsumedMessage, InvalidKafkaMessage,
+};
 use std::time::Duration;
 
 fn create_mock_message(partition: i32, offset: i64) -> ConsumedMessage {
     ConsumedMessage {
-        envelope: EventEnvelope {
+        envelope: AnyEnvelope::PlayerStat(EventEnvelope {
             schema_version: "1.0".to_string(),
             event_id: format!("ev-{}-{}", partition, offset),
             op: "data.player_stat.match_summary".to_string(),
@@ -28,7 +30,7 @@ fn create_mock_message(partition: i32, offset: i64) -> ConsumedMessage {
                 survival_duration: 600.0,
                 win_place_perc: Some(0.5),
             },
-        },
+        }),
         topic: "pubg.v1.player-stat.raw".to_string(),
         partition,
         offset,
@@ -53,7 +55,10 @@ fn test_accumulator_record_count_trigger() {
     assert!(res1.is_none(), "Tin nhắn 1 chưa đạt ngưỡng count=2");
 
     let res2 = accum.push(msg2);
-    assert!(res2.is_some(), "Tin nhắn 2 đạt ngưỡng count=2 phải trigger flush");
+    assert!(
+        res2.is_some(),
+        "Tin nhắn 2 đạt ngưỡng count=2 phải trigger flush"
+    );
 
     let batch = res2.unwrap();
     assert_eq!(batch.record_count, 2);
@@ -73,7 +78,10 @@ fn test_accumulator_byte_size_trigger() {
     let msg1 = create_mock_message(0, 10);
 
     let res1 = accum.push(msg1);
-    assert!(res1.is_some(), "Kích thước byte tin nhắn (~280 bytes) vượt ngưỡng 150 bytes phải trigger flush");
+    assert!(
+        res1.is_some(),
+        "Kích thước byte tin nhắn (~280 bytes) vượt ngưỡng 150 bytes phải trigger flush"
+    );
 
     let batch = res1.unwrap();
     assert_eq!(batch.record_count, 1);
@@ -103,4 +111,29 @@ fn test_accumulator_partition_offset_tracking() {
 
     let p1_offsets = batch.partition_offsets.get(&1).unwrap();
     assert_eq!(*p1_offsets, (100, 105), "Partition 1 min=100, max=105");
+}
+
+#[test]
+fn test_malformed_only_batch_flushes_and_preserves_payload() {
+    let cfg = BatchAccumulatorConfig {
+        max_records: 1,
+        max_bytes: 100_000,
+        flush_interval: Duration::from_secs(60),
+    };
+    let mut accum = BatchAccumulator::new(cfg);
+    let batch = accum
+        .push_invalid(InvalidKafkaMessage {
+            topic: "pubg.v1.player-stat.raw".to_string(),
+            partition: 2,
+            offset: 42,
+            raw_payload: vec![0xff, 0x00],
+            error_reason: "Malformed JSON".to_string(),
+        })
+        .expect("poison-only batch phải flush theo record limit");
+
+    assert_eq!(batch.record_count, 1);
+    assert_eq!(batch.events.len(), 0);
+    assert_eq!(batch.malformed_messages[0].raw_payload, vec![0xff, 0x00]);
+    assert_eq!(batch.partition_offsets.get(&2), Some(&(42, 42)));
+    assert_eq!(batch.batch_id.len(), 64);
 }

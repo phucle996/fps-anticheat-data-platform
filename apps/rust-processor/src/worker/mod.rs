@@ -4,4 +4,4 @@ pub mod r_spawner;
 
 pub use circuit_breaker::{CircuitBreakerState, ResourceCircuitBreaker};
 pub use dynamic_pool::RDynamicWorkerPool;
-pub use r_spawner::RWorkerSpawner;
+pub use r_spawner::{RWorkerResult, RWorkerSpawner, UploadedArtifact};

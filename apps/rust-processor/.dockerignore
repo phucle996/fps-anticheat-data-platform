@@ -1,28 +1,18 @@
-# Rust build artifacts — KHÔNG copy vào Docker build context
-# Thư mục target chứa compiled artifacts rất nặng (hàng GB), cần exclude tuyệt đối
-target/
+# .dockerignore cho Rust Stream Processor Engine
+# Bỏ qua các file tạm, log, target build để tăng tốc truyền context Docker build
 
-# Git metadata — không cần thiết trong container
-.git/
-.gitignore
-
-# File test và benchmark — chỉ cần trong CI, không cần trong runtime image
-tests/
-benches/
-
-# Tài liệu — không ảnh hưởng binary
-*.md
-README*
-LICENSE*
-CHANGELOG*
-
-# IDE và editor configs — không liên quan build
-.idea/
-.vscode/
-*.swp
-*.swo
-
-# CI/CD configs — không cần trong container
-.github/
-.gitlab-ci.yml
-Makefile
+.git
+.github
+target
+.buildx-cache
+data
+datasets
+logs
+tmp
+*.parquet
+*.csv
+*.zip
+*.tar
+*.tar.gz
+.env
+README.md

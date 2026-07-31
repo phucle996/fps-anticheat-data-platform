@@ -106,7 +106,7 @@ func TestPredictIPCFlow(t *testing.T) {
 		Op:       "predict",
 		MatchID:  "match_200",
 		PlayerID: "player_B",
-		Features: [6]float32{1.5, 140.0, 0.95, 120.0, 250.0, 800.0},
+		Features: []float32{1.5, 140.0, 0.95, 120.0, 250.0, 800.0},
 	}
 	jsonBytes, _ := json.Marshal(bodyReq)
 

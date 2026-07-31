@@ -30,7 +30,10 @@ fn test_deserialize_valid_event_json() {
     }"#;
 
     let envelope: Result<EventEnvelope, _> = serde_json::from_str(raw_json);
-    assert!(envelope.is_ok(), "Giải mã JSON EventEnvelope phải thành công");
+    assert!(
+        envelope.is_ok(),
+        "Giải mã JSON EventEnvelope phải thành công"
+    );
 
     let env = envelope.unwrap();
     assert_eq!(env.match_id, "match-100");
@@ -46,5 +49,8 @@ fn test_deserialize_malformed_json_failure() {
     let malformed_json = r#"{ "match_id": "match-100", "broken_field": true }"#;
 
     let envelope: Result<EventEnvelope, _> = serde_json::from_str(malformed_json);
-    assert!(envelope.is_err(), "Kỳ vọng giải mã Malformed JSON trả về lỗi");
+    assert!(
+        envelope.is_err(),
+        "Kỳ vọng giải mã Malformed JSON trả về lỗi"
+    );
 }

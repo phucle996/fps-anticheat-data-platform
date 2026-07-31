@@ -1,10 +1,10 @@
 use crate::config::Config;
 use crate::domain::AnyEnvelope;
 use crate::error::{AppError, Result};
+use rdkafka::TopicPartitionList;
 use rdkafka::config::ClientConfig;
 use rdkafka::consumer::{Consumer, StreamConsumer};
 use rdkafka::message::Message;
-use rdkafka::TopicPartitionList;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::{error, info, warn};
@@ -19,7 +19,7 @@ pub enum ConsumeOutcome {
 /// ConsumedMessage đại diện cho 1 sự kiện hợp lệ
 #[derive(Debug, Clone)]
 pub struct ConsumedMessage {
-    pub envelope: AnyEnvelope,   // AnyEnvelope (KillEventEnvelope hoặc EventEnvelope)
+    pub envelope: AnyEnvelope, // AnyEnvelope (KillEventEnvelope hoặc EventEnvelope)
     pub topic: String,
     pub partition: i32,
     pub offset: i64,
@@ -40,6 +40,7 @@ pub struct InvalidKafkaMessage {
 pub struct KafkaConsumer {
     consumer: Arc<StreamConsumer>, // StreamConsumer thread-safe của rdkafka
     topic: String,                 // Topic đang subscribe
+    max_payload_bytes: usize,
 }
 
 impl KafkaConsumer {
@@ -48,16 +49,25 @@ impl KafkaConsumer {
         let consumer: StreamConsumer = ClientConfig::new()
             .set("bootstrap.servers", &config.kafka_brokers)
             .set("group.id", &config.kafka_group_id)
-            .set("enable.auto.commit", "false")        // Tắt commit tự động (At-Least-Once Delivery)
+            .set("enable.auto.commit", "false") // Tắt commit tự động (At-Least-Once Delivery)
             .set("enable.auto.offset.store", "false") // Quản lý lưu offset thủ công
-            .set("auto.offset.reset", "earliest")     // Đọc từ đầu nếu là consumer group mới
-            .set("session.timeout.ms", "45000")       // Heartbeat timeout 45 giây
+            .set("auto.offset.reset", "earliest") // Đọc từ đầu nếu là consumer group mới
+            .set("session.timeout.ms", "45000") // Heartbeat timeout 45 giây
+            .set(
+                "fetch.message.max.bytes",
+                config.max_message_bytes.to_string(),
+            )
             .create()
             .map_err(|e| AppError::Kafka(format!("Tạo Kafka StreamConsumer thất bại: {}", e)))?;
 
         consumer
             .subscribe(&[&config.kafka_raw_topic])
-            .map_err(|e| AppError::Kafka(format!("Subscribe topic {} thất bại: {}", config.kafka_raw_topic, e)))?;
+            .map_err(|e| {
+                AppError::Kafka(format!(
+                    "Subscribe topic {} thất bại: {}",
+                    config.kafka_raw_topic, e
+                ))
+            })?;
 
         info!(
             brokers = %config.kafka_brokers,
@@ -69,6 +79,7 @@ impl KafkaConsumer {
         Ok(Self {
             consumer: Arc::new(consumer),
             topic: config.kafka_raw_topic.clone(),
+            max_payload_bytes: config.max_message_bytes,
         })
     }
 
@@ -76,17 +87,17 @@ impl KafkaConsumer {
     pub async fn verify_topic_exists(&self) -> Result<()> {
         use std::time::Duration;
 
-        let metadata = self.consumer
+        let metadata = self
+            .consumer
             .fetch_metadata(Some(&self.topic), Duration::from_secs(10))
-            .map_err(|e| AppError::Kafka(format!(
-                "Không thể fetch metadata topic '{}' từ Kafka broker: {}",
-                self.topic, e
-            )))?;
+            .map_err(|e| {
+                AppError::Kafka(format!(
+                    "Không thể fetch metadata topic '{}' từ Kafka broker: {}",
+                    self.topic, e
+                ))
+            })?;
 
-        let topic_meta = metadata
-            .topics()
-            .iter()
-            .find(|t| t.name() == self.topic);
+        let topic_meta = metadata.topics().iter().find(|t| t.name() == self.topic);
 
         match topic_meta {
             None => Err(AppError::Kafka(format!(
@@ -122,7 +133,22 @@ impl KafkaConsumer {
                     .map(|s| s.to_string());
 
                 let payload_bytes = match borrowed_msg.payload() {
-                    Some(bytes) => bytes.to_vec(),
+                    Some(bytes) if bytes.len() <= self.max_payload_bytes => bytes.to_vec(),
+                    Some(bytes) => {
+                        // Giữ bounded prefix để điều tra mà không cho poison record làm cạn RAM.
+                        let raw_payload = bytes[..self.max_payload_bytes].to_vec();
+                        return Ok(ConsumeOutcome::Invalid(InvalidKafkaMessage {
+                            topic,
+                            partition,
+                            offset,
+                            raw_payload,
+                            error_reason: format!(
+                                "Payload {} bytes vượt giới hạn {} bytes; DLQ chỉ lưu bounded prefix",
+                                bytes.len(),
+                                self.max_payload_bytes
+                            ),
+                        }));
+                    }
                     None => {
                         warn!(
                             topic = %topic, partition = partition, offset = offset,
@@ -167,20 +193,36 @@ impl KafkaConsumer {
     }
 
     /// Commit_partition_offsets commit offset cho tất cả các partition trong batch cùng lúc
-    pub fn commit_partition_offsets(&self, partition_offsets: &HashMap<i32, (i64, i64)>) -> Result<()> {
+    pub fn commit_partition_offsets(
+        &self,
+        partition_offsets: &HashMap<i32, (i64, i64)>,
+    ) -> Result<()> {
         if partition_offsets.is_empty() {
             return Ok(());
         }
 
         let mut tpl = TopicPartitionList::new();
         for (partition, (_min_off, max_off)) in partition_offsets {
-            tpl.add_partition_offset(&self.topic, *partition, rdkafka::Offset::Offset(*max_off + 1))
-                .map_err(|e| AppError::Kafka(format!("Thêm Partition {} offset {} thất bại: {}", partition, max_off + 1, e)))?;
+            tpl.add_partition_offset(
+                &self.topic,
+                *partition,
+                rdkafka::Offset::Offset(*max_off + 1),
+            )
+            .map_err(|e| {
+                AppError::Kafka(format!(
+                    "Thêm Partition {} offset {} thất bại: {}",
+                    partition,
+                    max_off + 1,
+                    e
+                ))
+            })?;
         }
 
         self.consumer
             .commit(&tpl, rdkafka::consumer::CommitMode::Sync)
-            .map_err(|e| AppError::Kafka(format!("Commit multi-partition offsets thất bại: {}", e)))?;
+            .map_err(|e| {
+                AppError::Kafka(format!("Commit multi-partition offsets thất bại: {}", e))
+            })?;
 
         info!(
             topic = %self.topic,

@@ -55,9 +55,20 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     make \
     build-essential
 
-# Cài đặt R package arrow bản pre-compiled Linux binary cực nhanh từ Posit CRAN (Fail-Close)
-RUN Rscript -e 'options(HTTPUserAgent = sprintf("R/%s R (%s)", getRversion(), paste(getRversion(), R.version$platform, R.version$arch, R.version$os))); install.packages("arrow", repos="https://packagemanager.posit.co/cran/__linux__/bookworm/latest")' \
+# Cấu hình biến môi trường ép buộc R cài đặt bản pre-compiled C++ binary thay vì compile từ source
+# LIBARROW_BINARY=true: Yêu cầu tải binary C++ libarrow được dựng sẵn cho Linux
+ENV LIBARROW_BINARY=true
+# NOT_CRAN=true: Cho phép R arrow package tải binary bên ngoài CRAN chuẩn
+ENV NOT_CRAN=true
+# ARROW_R_DEV=false: Tắt chế độ developer build để tránh kích hoạt cmake compile từ source
+ENV ARROW_R_DEV=false
+
+# Cài đặt R package arrow từ Posit Package Manager (P3M dev) dùng pre-compiled binary cho Debian Bookworm
+# Sử dụng định dạng User-Agent chuẩn "R (version platform arch os)" để P3M nhận diện và trả về binary cực nhanh
+RUN Rscript -e 'options(repos = c(CRAN = "https://p3m.dev/cran/__linux__/bookworm/latest"), HTTPUserAgent = sprintf("R (%s)", paste(getRversion(), R.version$platform, R.version$arch, R.version$os))); install.packages("arrow")' \
+    # Kiểm tra xem package arrow đã được load thành công trong R chưa (Fail-Close)
     && Rscript -e 'stopifnot(requireNamespace("arrow", quietly=TRUE))' \
+    # Kiểm tra xem package jsonlite đã được load thành công trong R chưa (Fail-Close)
     && Rscript -e 'stopifnot(requireNamespace("jsonlite", quietly=TRUE))'
 
 WORKDIR /app

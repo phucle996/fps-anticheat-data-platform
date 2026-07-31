@@ -1,4 +1,4 @@
-use rust_processor::domain::{EventEnvelope, PlayerStatPayload, SourceMetadata};
+use rust_processor::domain::{AnyEnvelope, EventEnvelope, PlayerStatPayload, SourceMetadata};
 use rust_processor::transform::EventValidator;
 
 fn create_valid_event() -> EventEnvelope {
@@ -29,12 +29,19 @@ fn create_valid_event() -> EventEnvelope {
     }
 }
 
+fn as_any(event: EventEnvelope) -> AnyEnvelope {
+    AnyEnvelope::PlayerStat(event)
+}
+
 // Test_valid_event kiểm tra sự kiện hợp lệ qua 11 quy tắc validation
 #[test]
 fn test_valid_event() {
     let event = create_valid_event();
-    let res = EventValidator::validate_event(&event);
-    assert!(res.is_ok(), "Bản ghi chuẩn phải vượt qua 100% validation rules");
+    let res = EventValidator::validate_any(&as_any(event));
+    assert!(
+        res.is_ok(),
+        "Bản ghi chuẩn phải vượt qua 100% validation rules"
+    );
 }
 
 // Test_invalid_headshots_exceed_kills kiểm tra bắt lỗi headshots > kills
@@ -44,7 +51,7 @@ fn test_invalid_headshots_exceed_kills() {
     event.payload.kills = 2;
     event.payload.headshot_kills = 5; // Headshots (5) > Kills (2)
 
-    let res = EventValidator::validate_event(&event);
+    let res = EventValidator::validate_any(&as_any(event));
     assert!(res.is_err());
     let reasons = res.unwrap_err();
     assert!(reasons.iter().any(|r| r.contains("headshot_kills")));
@@ -58,7 +65,7 @@ fn test_negative_metrics() {
     event.payload.damage_dealt = -50.0;
     event.payload.walk_distance = -10.0;
 
-    let res = EventValidator::validate_event(&event);
+    let res = EventValidator::validate_any(&as_any(event));
     assert!(res.is_err());
     let reasons = res.unwrap_err();
     assert!(reasons.len() >= 3);
@@ -70,7 +77,7 @@ fn test_invalid_win_place_perc() {
     let mut event = create_valid_event();
     event.payload.win_place_perc = Some(1.5); // Out of range [0.0, 1.0]
 
-    let res = EventValidator::validate_event(&event);
+    let res = EventValidator::validate_any(&as_any(event));
     assert!(res.is_err());
     let reasons = res.unwrap_err();
     assert!(reasons.iter().any(|r| r.contains("win_place_perc")));
@@ -82,7 +89,7 @@ fn test_invalid_event_id_hex() {
     let mut event = create_valid_event();
     event.event_id = "invalid-short-id".to_string(); // Sai độ dài hex
 
-    let res = EventValidator::validate_event(&event);
+    let res = EventValidator::validate_any(&as_any(event));
     assert!(res.is_err());
     let reasons = res.unwrap_err();
     assert!(reasons.iter().any(|r| r.contains("event_id")));
@@ -95,7 +102,7 @@ fn test_validate_batch_mixed() {
     let mut invalid_event = create_valid_event();
     invalid_event.payload.win_place_perc = Some(2.5); // Vi phạm duy nhất win_place_perc
 
-    let events = vec![valid_event, invalid_event];
+    let events = vec![as_any(valid_event), as_any(invalid_event)];
     let outcome = EventValidator::validate_batch(events);
 
     assert_eq!(outcome.valid_count, 1);

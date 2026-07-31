@@ -18,6 +18,9 @@ pub enum AppError {
 
     #[error("Lỗi S3 Storage: {0}")]
     Storage(String),
+
+    #[error("Lỗi R worker: {0}")]
+    Worker(String),
 }
 
 /// Result alias dùng chung cho toàn bộ dự án

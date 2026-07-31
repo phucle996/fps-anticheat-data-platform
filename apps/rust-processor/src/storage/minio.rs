@@ -1,13 +1,25 @@
 use super::manifest::BatchManifest;
 use crate::config::Config;
 use crate::error::{AppError, Result};
+use crate::ingest::InvalidKafkaMessage;
 use crate::transform::InvalidEnvelopeRecord;
+use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64_STANDARD};
 use chrono::{DateTime, Utc};
+use object_store::ObjectStore;
 use object_store::aws::AmazonS3Builder;
 use object_store::path::Path as ObjectPath;
-use object_store::ObjectStore;
 use std::sync::Arc;
 use tracing::{info, warn};
+
+#[derive(serde::Serialize)]
+struct MalformedKafkaDlqRecord {
+    topic: String,
+    partition: i32,
+    offset: i64,
+    error_reason: String,
+    payload_base64: String,
+    payload_sha256: String,
+}
 
 /// MinioWriter quản lý kết nối Cloud-Native MinIO S3 Object Storage và upload dữ liệu Bronze Layer
 pub struct MinioWriter {
@@ -27,7 +39,9 @@ impl MinioWriter {
             .with_region("us-east-1")
             .with_allow_http(true) // Cho phép HTTP kết nối nội bộ Docker/MinIO
             .build()
-            .map_err(|e| AppError::Storage(format!("Khởi tạo AmazonS3 ObjectStore thất bại: {}", e)))?;
+            .map_err(|e| {
+                AppError::Storage(format!("Khởi tạo AmazonS3 ObjectStore thất bại: {}", e))
+            })?;
 
         info!(
             endpoint = %config.minio_endpoint,
@@ -96,7 +110,9 @@ impl MinioWriter {
             }
         }
 
-        info!("Đã xác nhận 100% cấu trúc 11 thư mục móng Medallion Data Lake sẵn sàng trên MinIO S3");
+        info!(
+            "Đã xác nhận 100% cấu trúc 11 thư mục móng Medallion Data Lake sẵn sàng trên MinIO S3"
+        );
         Ok(())
     }
 
@@ -127,6 +143,14 @@ impl MinioWriter {
         )
     }
 
+    pub fn generate_malformed_path(batch_id: &str, ingest_time_str: &str) -> String {
+        let (year, month, day) = Self::parse_date_or_now(ingest_time_str);
+        format!(
+            "bronze/invalid-kafka/year={}/month={:02}/day={:02}/malformed_{}.json",
+            year, month, day, batch_id
+        )
+    }
+
     /// Generate_manifest_path sinh đường dẫn Hive Partitioning cho Batch Manifest JSON
     pub fn generate_manifest_path(batch_id: &str, time_str: &str) -> String {
         let (year, month, day) = Self::parse_date_or_now(time_str);
@@ -152,7 +176,12 @@ impl MinioWriter {
         self.store
             .put(&object_path, bytes.into())
             .await
-            .map_err(|e| AppError::Storage(format!("Upload Parquet file lên MinIO path {} thất bại: {}", path_str, e)))?;
+            .map_err(|e| {
+                AppError::Storage(format!(
+                    "Upload Parquet file lên MinIO path {} thất bại: {}",
+                    path_str, e
+                ))
+            })?;
 
         info!(
             bucket = %self.bucket,
@@ -173,7 +202,12 @@ impl MinioWriter {
         self.store
             .put(&object_path, json_bytes.into())
             .await
-            .map_err(|e| AppError::Storage(format!("Upload BatchManifest JSON lên MinIO path {} thất bại: {}", path_str, e)))?;
+            .map_err(|e| {
+                AppError::Storage(format!(
+                    "Upload BatchManifest JSON lên MinIO path {} thất bại: {}",
+                    path_str, e
+                ))
+            })?;
 
         info!(
             bucket = %self.bucket,
@@ -186,19 +220,29 @@ impl MinioWriter {
     }
 
     /// Upload_invalid_records upload danh sách bản ghi vi phạm dưới dạng JSON lên MinIO S3
-    pub async fn upload_invalid_records(&self, path_str: &str, records: &[InvalidEnvelopeRecord]) -> Result<()> {
+    pub async fn upload_invalid_records(
+        &self,
+        path_str: &str,
+        records: &[InvalidEnvelopeRecord],
+    ) -> Result<()> {
         if records.is_empty() {
             return Ok(());
         }
 
-        let json_bytes = serde_json::to_vec_pretty(records)
-            .map_err(|e| AppError::Storage(format!("Mã hóa Invalid Records JSON thất bại: {}", e)))?;
+        let json_bytes = serde_json::to_vec_pretty(records).map_err(|e| {
+            AppError::Storage(format!("Mã hóa Invalid Records JSON thất bại: {}", e))
+        })?;
 
         let object_path = ObjectPath::from(path_str);
         self.store
             .put(&object_path, json_bytes.into())
             .await
-            .map_err(|e| AppError::Storage(format!("Upload Invalid Records JSON lên MinIO path {} thất bại: {}", path_str, e)))?;
+            .map_err(|e| {
+                AppError::Storage(format!(
+                    "Upload Invalid Records JSON lên MinIO path {} thất bại: {}",
+                    path_str, e
+                ))
+            })?;
 
         warn!(
             bucket = %self.bucket,
@@ -210,27 +254,64 @@ impl MinioWriter {
         Ok(())
     }
 
+    /// Ghi nguyên payload malformed dưới dạng base64 trước khi offset được commit.
+    pub async fn upload_malformed_messages(
+        &self,
+        path_str: &str,
+        messages: &[InvalidKafkaMessage],
+    ) -> Result<()> {
+        if messages.is_empty() {
+            return Ok(());
+        }
+        let records: Vec<_> = messages
+            .iter()
+            .map(|message| MalformedKafkaDlqRecord {
+                topic: message.topic.clone(),
+                partition: message.partition,
+                offset: message.offset,
+                error_reason: message.error_reason.clone(),
+                payload_base64: BASE64_STANDARD.encode(&message.raw_payload),
+                payload_sha256: Self::compute_sha256(&message.raw_payload),
+            })
+            .collect();
+        let json_bytes = serde_json::to_vec_pretty(&records)
+            .map_err(|err| AppError::Storage(format!("Mã hóa malformed DLQ thất bại: {}", err)))?;
+        let object_path = ObjectPath::from(path_str);
+        self.store
+            .put(&object_path, json_bytes.into())
+            .await
+            .map_err(|err| {
+                AppError::Storage(format!(
+                    "Upload malformed DLQ '{}' thất bại: {}",
+                    path_str, err
+                ))
+            })?;
+        warn!(
+            path = %path_str,
+            count = messages.len(),
+            "Malformed Kafka payload đã durable trước offset commit"
+        );
+        Ok(())
+    }
+
     /// Download_object_bytes tải nội dung object từ MinIO về dưới dạng bytes thuần (in-memory)
     /// Dùng nội bộ — caller có thể ghi ra file hoặc parse trực tiếp
     pub async fn download_object_bytes(&self, object_key: &str) -> Result<Vec<u8>> {
         let object_path = ObjectPath::from(object_key);
 
-        let result = self
-            .store
-            .get(&object_path)
-            .await
-            .map_err(|e| AppError::Storage(format!(
+        let result = self.store.get(&object_path).await.map_err(|e| {
+            AppError::Storage(format!(
                 "Download object '{}' từ MinIO thất bại: {}",
                 object_key, e
-            )))?;
+            ))
+        })?;
 
-        let bytes = result
-            .bytes()
-            .await
-            .map_err(|e| AppError::Storage(format!(
+        let bytes = result.bytes().await.map_err(|e| {
+            AppError::Storage(format!(
                 "Đọc bytes object '{}' từ stream thất bại: {}",
                 object_key, e
-            )))?;
+            ))
+        })?;
 
         info!(
             bucket = %self.bucket,
@@ -245,7 +326,11 @@ impl MinioWriter {
     /// Download_to_temp tải object từ MinIO xuống một file local tạm trong thư mục temp_dir
     /// Trả về đường dẫn file local để truyền cho R subprocess (Rscript chỉ đọc local)
     /// Caller có trách nhiệm xóa file sau khi R xử lý xong (cleanup)
-    pub async fn download_to_temp(&self, object_key: &str, temp_dir: &std::path::Path) -> Result<std::path::PathBuf> {
+    pub async fn download_to_temp(
+        &self,
+        object_key: &str,
+        temp_dir: &std::path::Path,
+    ) -> Result<std::path::PathBuf> {
         use std::io::Write;
 
         // Tải bytes từ MinIO
@@ -253,10 +338,7 @@ impl MinioWriter {
 
         // Tạo tên file local dựa trên phần cuối của object_key (giữ extension gốc)
         // vd: "manifests/year=2026/.../manifest_abc.json" → "manifest_abc.json"
-        let file_name = object_key
-            .split('/')
-            .last()
-            .unwrap_or("downloaded_object");
+        let file_name = object_key.split('/').last().unwrap_or("downloaded_object");
 
         let local_path = temp_dir.join(file_name);
 
@@ -288,7 +370,11 @@ impl MinioWriter {
 
     /// Upload_file_to_minio upload file local lên MinIO S3 với object_key chỉ định
     /// Dùng để Rust upload Silver/Gold Parquet mà R đã tạo ra trong temp dir
-    pub async fn upload_file(&self, local_path: &std::path::Path, object_key: &str) -> Result<String> {
+    pub async fn upload_file(
+        &self,
+        local_path: &std::path::Path,
+        object_key: &str,
+    ) -> Result<String> {
         let bytes = std::fs::read(local_path).map_err(|e| {
             AppError::Storage(format!(
                 "Không thể đọc file local '{}' để upload: {}",
@@ -303,12 +389,14 @@ impl MinioWriter {
         self.store
             .put(&object_path, bytes.into())
             .await
-            .map_err(|e| AppError::Storage(format!(
-                "Upload file '{}' lên MinIO key '{}' thất bại: {}",
-                local_path.display(),
-                object_key,
-                e
-            )))?;
+            .map_err(|e| {
+                AppError::Storage(format!(
+                    "Upload file '{}' lên MinIO key '{}' thất bại: {}",
+                    local_path.display(),
+                    object_key,
+                    e
+                ))
+            })?;
 
         info!(
             local_path = %local_path.display(),

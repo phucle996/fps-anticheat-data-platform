@@ -1,0 +1,19 @@
+# .dockerignore cho Monorepo Root
+# Bỏ qua các file nặng không cần thiết khi build Docker context
+
+.git
+.github
+target
+.buildx-cache
+data
+datasets
+logs
+tmp
+*.parquet
+*.csv
+*.zip
+*.tar
+*.tar.gz
+**/.env
+README.md
+docs/
