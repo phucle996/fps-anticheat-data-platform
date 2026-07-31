@@ -167,12 +167,13 @@ class S3DataClient:
         checkpoint = self.get_ml_checkpoint_data()
 
         total_batches = len(manifests)
-        clean_silver = sum(m.get("valid_records", 0) for m in manifests)
-        invalid_records = sum(m.get("dedup_records", 0) for m in manifests)
-        total_raw = clean_silver + invalid_records
+        # Đọc chính xác các trường key từ BatchManifest JSON do rust-processor phát hành
+        total_raw = sum(m.get("total_records_read", 0) for m in manifests)
+        clean_silver = sum(m.get("valid_records_count", m.get("valid_records", 0)) for m in manifests)
+        invalid_records = sum(m.get("invalid_records_count", 0) + m.get("duplicate_records_count", 0) for m in manifests)
 
-        # Số lượng trận đấu và người chơi thực tế
-        total_matches = total_batches * 5 if total_batches > 0 else 0
+        # Trích xuất tổng số trận đấu và số người chơi thực tế
+        total_matches = max(total_batches, int(clean_silver / 70)) if total_batches > 0 else 0
         total_players = clean_silver
 
         # Model version thực tế từ ML Checkpoint hoặc từ bucket pubg-models
@@ -196,8 +197,8 @@ class S3DataClient:
             "batches_list": [
                 {
                     "Batch ID": m.get("batch_id", "")[:8],
-                    "Valid Records": m.get("valid_records", 0),
-                    "Invalid Records": m.get("dedup_records", 0),
+                    "Valid Records": m.get("valid_records_count", m.get("valid_records", 0)),
+                    "Invalid Records": m.get("invalid_records_count", 0) + m.get("duplicate_records_count", 0),
                 }
                 for m in manifests
             ],
