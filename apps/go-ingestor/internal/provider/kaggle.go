@@ -1,4 +1,4 @@
-package service
+package provider
 
 import (
 	"context"
@@ -8,11 +8,11 @@ import (
 	"time"
 )
 
-// KaggleClient tương tác với Kaggle REST API v1
+// KaggleClient tương tác với Kaggle REST API v1 để lấy thông tin và tải dataset telemetry
 type KaggleClient struct {
-	username   string       // Tên người dùng Kaggle
-	apiKey     string       // Kaggle API Key
-	httpClient *http.Client // HTTP Client với timeout
+	username   string       // Tên người dùng Kaggle (KAGGLE_USERNAME)
+	apiKey     string       // Kaggle API Key (KAGGLE_KEY)
+	httpClient *http.Client // HTTP Client với Timeout an toàn cho tải file lớn
 }
 
 // NewKaggleClient khởi tạo KaggleClient
@@ -21,7 +21,7 @@ func NewKaggleClient(username, apiKey string) *KaggleClient {
 		username: username,
 		apiKey:   apiKey,
 		httpClient: &http.Client{
-			Timeout: 30 * time.Minute, // Timeout 30 phút phục vụ tải dataset lớn
+			Timeout: 30 * time.Minute, // Timeout 30 phút phục vụ tải dataset lớn hàng GB
 		},
 	}
 }

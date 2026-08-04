@@ -1,4 +1,4 @@
-package service
+package app
 
 import (
 	"context"
@@ -13,17 +13,20 @@ import (
 
 	"go-ingestor/internal/config"
 	"go-ingestor/internal/contract"
+	"go-ingestor/internal/kafka"
+	"go-ingestor/internal/pipeline"
+	"go-ingestor/internal/storage"
 )
 
 // ReplayerConfig định nghĩa thông số điều khiển replay và checkpointing
 type ReplayerConfig struct {
-	Limit             int64       // Số lượng bản ghi tối đa cần replay (0 = không giới hạn)
-	StartRecord       int64       // Chỉ số bản ghi bắt đầu replay (1 = dòng đầu tiên)
-	DryRun            bool        // Cờ chạy thử không phát Kafka
-	DisableCheckpoint bool        // Cờ tắt tính năng đọc/ghi Checkpoint
-	ResetCheckpoint   bool        // Cờ xóa trạng thái Checkpoint cũ trên MinIO S3
-	MicroBatching     BatchConfig // Cấu hình Micro-Batching Flusher
-	StreamDelayMs     int64       // Khoảng trễ (ms) phát rải rác giữa các bản ghi game events (Stream Simulator)
+	Limit             int64                // Số lượng bản ghi tối đa cần replay (0 = không giới hạn)
+	StartRecord       int64                // Chỉ số bản ghi bắt đầu replay (1 = dòng đầu tiên)
+	DryRun            bool                 // Cờ chạy thử không phát Kafka
+	DisableCheckpoint bool                 // Cờ tắt tính năng đọc/ghi Checkpoint
+	ResetCheckpoint   bool                 // Cờ xóa trạng thái Checkpoint cũ trên MinIO S3
+	MicroBatching     pipeline.BatchConfig // Cấu hình Micro-Batching Flusher
+	StreamDelayMs     int64                // Khoảng trễ (ms) phát rải rác giữa các bản ghi game events (Stream Simulator)
 }
 
 // ReplayStatistics theo dõi bộ đếm thống kê thời gian thực của replay loop
@@ -38,15 +41,15 @@ type ReplayStatistics struct {
 // Replayer Engine vòng lặp Replay tích hợp Micro-Batching Flusher & Contiguous ACK Checkpoint Store
 type Replayer struct {
 	cfg             ReplayerConfig
-	parser          Parser
-	normalizer      Normalizer
-	producer        Producer              // Kafka Producer (Fail-Close)
-	checkpointStore CheckpointStore       // MinIO S3 Checkpoint Store
-	flusher         *BatchFlusher         // Bộ đệm Micro-Batching
-	ackTracker      *ContiguousAckTracker // Tracker theo dõi highest contiguous ACKed index
-	datasetID       string                // ID dataset đang replay
-	datasetSHA256   string                // Hash SHA256 của dataset zip
-	sourceFile      string                // Tên file CSV nguồn
+	parser          pipeline.Parser
+	normalizer      pipeline.Normalizer
+	producer        pipeline.Producer              // Kafka Producer (Fail-Close)
+	checkpointStore storage.CheckpointStore        // MinIO S3 Checkpoint Store
+	flusher         *pipeline.BatchFlusher         // Bộ đệm Micro-Batching
+	ackTracker      *storage.ContiguousAckTracker  // Tracker theo dõi highest contiguous ACKed index
+	datasetID       string                         // ID dataset đang replay
+	datasetSHA256   string                         // Hash SHA256 của dataset zip
+	sourceFile      string                         // Tên file CSV nguồn
 	log             *logrus.Entry
 	stats           ReplayStatistics
 }
@@ -54,14 +57,14 @@ type Replayer struct {
 // NewReplayer khởi tạo Replayer với ContiguousAckTracker
 func NewReplayer(
 	cfg ReplayerConfig,
-	p Parser,
-	n Normalizer,
-	producer Producer,
-	cpStore CheckpointStore,
+	p pipeline.Parser,
+	n pipeline.Normalizer,
+	producer pipeline.Producer,
+	cpStore storage.CheckpointStore,
 	datasetID, sourceFile, datasetSHA256 string,
 	log *logrus.Entry,
 ) *Replayer {
-	flusher := NewBatchFlusher(cfg.MicroBatching, producer)
+	flusher := pipeline.NewBatchFlusher(cfg.MicroBatching, producer)
 	flusher.SetLogger(log)
 
 	initialAckIndex := cfg.StartRecord - 1
@@ -76,7 +79,7 @@ func NewReplayer(
 		producer:        producer,
 		checkpointStore: cpStore,
 		flusher:         flusher,
-		ackTracker:      NewContiguousAckTracker(initialAckIndex),
+		ackTracker:      storage.NewContiguousAckTracker(initialAckIndex),
 		datasetID:       datasetID,
 		datasetSHA256:   datasetSHA256,
 		sourceFile:      sourceFile,
@@ -118,7 +121,7 @@ func (r *Replayer) Run(ctx context.Context) (*ReplayStatistics, error) {
 			r.log.WithError(err).Warn("Không thể nạp Checkpoint từ MinIO S3, chạy từ bản ghi mặc định")
 		} else if cpState != nil && cpState.LastAckedRecordIndex > 0 {
 			r.cfg.StartRecord = cpState.LastAckedRecordIndex + 1
-			r.ackTracker = NewContiguousAckTracker(cpState.LastAckedRecordIndex)
+			r.ackTracker = storage.NewContiguousAckTracker(cpState.LastAckedRecordIndex)
 			r.log.WithFields(logrus.Fields{
 				"last_acked":   cpState.LastAckedRecordIndex,
 				"resume_start": r.cfg.StartRecord,
@@ -135,7 +138,7 @@ func (r *Replayer) Run(ctx context.Context) (*ReplayStatistics, error) {
 
 	// Khởi tạo IngestionWorkerPool
 	numCPU := runtime.NumCPU() * 2
-	workerPool := NewIngestionWorkerPool(numCPU, r.normalizer)
+	workerPool := pipeline.NewIngestionWorkerPool(numCPU, r.normalizer)
 	workerPool.Start(ctx)
 
 	// Background Goroutine đọc CSV từ Parser và đẩy vào Worker Pool
@@ -151,7 +154,7 @@ func (r *Replayer) Run(ctx context.Context) (*ReplayStatistics, error) {
 
 			rawRecord, err := r.parser.Next()
 			if err != nil {
-				if errors.Is(err, ErrEOF) {
+				if errors.Is(err, pipeline.ErrEOF) {
 					r.log.Info("Đã đọc tới cuối file CSV (EOF), hoàn tất đọc bản ghi.")
 					break
 				}
@@ -251,7 +254,7 @@ func (r *Replayer) saveCheckpoint(ctx context.Context) {
 
 	lastAckedIndex := r.ackTracker.GetLastContiguousAcked()
 
-	state := &CheckpointState{
+	state := &storage.CheckpointState{
 		DatasetID:            r.datasetID,
 		DatasetSHA256:        r.datasetSHA256,
 		SourceFile:           r.sourceFile,
@@ -286,11 +289,11 @@ func extractRecordIndex(item interface{}) int64 {
 // ReplayService điều phối usecase Replay Dataset từ MinIO S3 phát vào Kafka
 type ReplayService struct {
 	cfg      *config.Config
-	minioCli *MinIOClient
+	minioCli *storage.MinIOClient
 	log      *logrus.Entry
 }
 
-func NewReplayService(cfg *config.Config, minioCli *MinIOClient, log *logrus.Entry) *ReplayService {
+func NewReplayService(cfg *config.Config, minioCli *storage.MinIOClient, log *logrus.Entry) *ReplayService {
 	return &ReplayService{
 		cfg:      cfg,
 		minioCli: minioCli,
@@ -310,10 +313,10 @@ func (s *ReplayService) RunReplay(ctx context.Context, replayCfg ReplayerConfig)
 		return nil, fmt.Errorf("MinIO bucket '%s' không tồn tại hoặc lỗi kết nối: %w", s.cfg.MinIOBucket, err)
 	}
 
-	var kafkaProducer Producer
+	var kafkaProducer pipeline.Producer
 	if !replayCfg.DryRun {
 		var err error
-		kafkaProducer, err = NewKafkaProducer(s.cfg.KafkaBrokers, s.cfg.KafkaRawTopic, s.cfg.KafkaInvalidTopic, s.log)
+		kafkaProducer, err = kafka.NewKafkaProducer(s.cfg.KafkaBrokers, s.cfg.KafkaRawTopic, s.cfg.KafkaInvalidTopic, s.log)
 		if err != nil {
 			return nil, fmt.Errorf("khởi tạo Kafka Producer thất bại (Fail-Close): %w", err)
 		}
@@ -381,14 +384,14 @@ func (s *ReplayService) RunReplay(ctx context.Context, replayCfg ReplayerConfig)
 		}).Info("Replay đang override selected file theo biến môi trường để benchmark nhiều CSV song song")
 	}
 
-	csvParser, err := NewCSVParser(csvObj, selectedFile)
+	csvParser, err := pipeline.NewCSVParser(csvObj, selectedFile)
 	if err != nil {
 		return nil, fmt.Errorf("khởi tạo CSVParser thất bại: %w", err)
 	}
 	defer csvParser.Close()
 
-	normalizer := NewPlayerStatNormalizer(manifest.DatasetID)
-	cpStore := NewMinIOCheckpointStore(s.minioCli, manifest.ArchiveChecksum, selectedFile)
+	normalizer := pipeline.NewPlayerStatNormalizer(manifest.DatasetID)
+	cpStore := storage.NewMinIOCheckpointStore(s.minioCli, manifest.ArchiveChecksum, selectedFile)
 
 	replayerEngine := NewReplayer(replayCfg, csvParser, normalizer, kafkaProducer, cpStore, manifest.DatasetID, selectedFile, manifest.ArchiveChecksum, s.log)
 	stats, err := replayerEngine.Run(ctx)

@@ -7,10 +7,10 @@ import (
 	"testing"
 
 	"go-ingestor/internal/contract"
-	"go-ingestor/internal/service"
+	"go-ingestor/internal/pipeline"
 )
 
-// MockProducer giả lập Kafka Producer triển khai service.Producer interface (Thread-Safe Mutex Active)
+// MockProducer giả lập Kafka Producer triển khai pipeline.Producer interface (Thread-Safe Mutex Active)
 type MockProducer struct {
 	producedEvents   []*contract.EventEnvelope
 	producedInvalids []*contract.InvalidRecord
@@ -19,7 +19,7 @@ type MockProducer struct {
 }
 
 // Ensure interface implementation check
-var _ service.Producer = (*MockProducer)(nil)
+var _ pipeline.Producer = (*MockProducer)(nil)
 
 func (m *MockProducer) ProduceEvent(ctx context.Context, envelope *contract.EventEnvelope) error {
 	m.mu.Lock()
@@ -39,7 +39,6 @@ func (m *MockProducer) ProduceKillEvent(ctx context.Context, envelope *contract.
 	if m.shouldFail {
 		return errors.New("kafka cluster unavailable (mock error)")
 	}
-	// Chuyển sang EventEnvelope mock nếu cần
 	return nil
 }
 

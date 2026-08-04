@@ -1,4 +1,4 @@
-package service
+package storage
 
 import (
 	"bytes"
@@ -11,12 +11,13 @@ import (
 )
 
 // MinIOClient bọc client chính thức của MinIO S3 SDK
+// Phục vụ việc lưu trữ dataset raw archive, extracted CSV, và checkpoint states
 type MinIOClient struct {
 	client     *minio.Client // Core MinIO Go Client
-	bucketName string        // Tên bucket chính (vd: pubg-data)
+	bucketName string        // Tên bucket chính (vd: fps-anticheat-datalake)
 }
 
-// NewMinIOClient khởi tạo kết nối tới MinIO Object Storage Server
+// NewMinIOClient khởi tạo kết nối tới MinIO Object Storage Server với thông số xác thực
 func NewMinIOClient(endpoint, accessKey, secretKey, bucketName string, useSSL bool) (*MinIOClient, error) {
 	cli, err := minio.New(endpoint, &minio.Options{
 		Creds:  credentials.NewStaticV4(accessKey, secretKey, ""),
@@ -32,7 +33,7 @@ func NewMinIOClient(endpoint, accessKey, secretKey, bucketName string, useSSL bo
 	}, nil
 }
 
-// EnsureBucketExists kiểm tra và tự động tạo bucket nếu chưa tồn tại
+// EnsureBucketExists kiểm tra và tự động tạo bucket nếu chưa tồn tại trên MinIO Server
 func (m *MinIOClient) EnsureBucketExists(ctx context.Context) error {
 	exists, err := m.client.BucketExists(ctx, m.bucketName)
 	if err != nil {
@@ -48,7 +49,7 @@ func (m *MinIOClient) EnsureBucketExists(ctx context.Context) error {
 	return nil
 }
 
-// ObjectExists kiểm tra xem một object key đã tồn tại trên MinIO S3 chưa
+// ObjectExists kiểm tra xem một object key đã tồn tại trên MinIO S3 chưa (Idempotency Check)
 func (m *MinIOClient) ObjectExists(ctx context.Context, objectKey string) (bool, error) {
 	_, err := m.client.StatObject(ctx, m.bucketName, objectKey, minio.StatObjectOptions{})
 	if err != nil {
@@ -61,7 +62,7 @@ func (m *MinIOClient) ObjectExists(ctx context.Context, objectKey string) (bool,
 	return true, nil
 }
 
-// UploadStream đẩy luồng dữ liệu io.Reader lên MinIO S3
+// UploadStream đẩy luồng dữ liệu io.Reader lên MinIO S3 (Zero-RAM Streaming)
 func (m *MinIOClient) UploadStream(ctx context.Context, objectKey string, reader io.Reader, objectSize int64, contentType string) error {
 	_, err := m.client.PutObject(ctx, m.bucketName, objectKey, reader, objectSize, minio.PutObjectOptions{
 		ContentType: contentType,

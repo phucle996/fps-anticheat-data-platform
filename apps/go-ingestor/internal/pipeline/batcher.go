@@ -1,4 +1,4 @@
-package service
+package pipeline
 
 import (
 	"context"
@@ -11,6 +11,15 @@ import (
 
 	"go-ingestor/internal/contract"
 )
+
+// Producer định nghĩa hợp đồng interface phát tin nhắn (High-Throughput Sink)
+// Giúp pipeline hoàn toàn decoupled khỏi thư viện Kafka cụ thể
+type Producer interface {
+	ProduceEvent(ctx context.Context, envelope *contract.EventEnvelope) error
+	ProduceKillEvent(ctx context.Context, envelope *contract.KillEventEnvelope) error
+	ProduceInvalid(ctx context.Context, invalid *contract.InvalidRecord) error
+	Close() error
+}
 
 // BatchConfig chứa cấu hình bộ đệm Micro-Batching Flusher
 type BatchConfig struct {

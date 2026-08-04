@@ -6,7 +6,7 @@ import (
 	"os"
 	"testing"
 
-	"go-ingestor/internal/service"
+	"go-ingestor/internal/pipeline"
 )
 
 // TestCSVParser_ValidStream kiểm tra đọc thành công dòng qua dòng từ CSV hợp lệ
@@ -17,7 +17,7 @@ func TestCSVParser_ValidStream(t *testing.T) {
 	}
 	defer file.Close()
 
-	p, err := service.NewCSVParser(file, "train_V2.csv")
+	p, err := pipeline.NewCSVParser(file, "train_V2.csv")
 	if err != nil {
 		t.Fatalf("Khởi tạo CSVParser thất bại: %v", err)
 	}
@@ -45,7 +45,7 @@ func TestCSVParser_ValidStream(t *testing.T) {
 	}
 
 	_, err = p.Next()
-	if !errors.Is(err, service.ErrEOF) {
+	if !errors.Is(err, pipeline.ErrEOF) {
 		t.Errorf("Kỳ vọng trả về ErrEOF, nhận được: %v", err)
 	}
 }
@@ -55,7 +55,7 @@ func TestCSVParser_EmptyLineSkipping(t *testing.T) {
 	csvData := "Id,kills\nplayer-1,3\n\n\nplayer-2,4\n"
 	buf := bytes.NewBufferString(csvData)
 
-	p, err := service.NewCSVParser(buf, "test.csv")
+	p, err := pipeline.NewCSVParser(buf, "test.csv")
 	if err != nil {
 		t.Fatalf("Khởi tạo CSVParser thất bại: %v", err)
 	}

@@ -6,13 +6,13 @@ import (
 	"os/signal"
 	"syscall"
 
+	"go-ingestor/internal/app"
 	"go-ingestor/internal/config"
 	"go-ingestor/internal/logging"
-	"go-ingestor/internal/service"
 )
 
 func main() {
-	// 1. Khởi tạo Logrus JSON Logger cho dịch vụ
+	// 1. Khởi tạo Logrus JSON Logger cho dịch vụ theo tiêu chuẩn Cloud-Native
 	log := logging.InitLogger("go-ingestor")
 	log.Info("Khởi tạo tiến trình dataset-sync entrypoint...")
 
@@ -20,14 +20,14 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	// 3. Nạp cấu hình ứng dụng từ Environment Variables
+	// 3. Nạp cấu hình ứng dụng từ Environment Variables (Fail-Close 100%)
 	cfg, err := config.LoadFromEnv()
 	if err != nil {
 		log.WithError(err).Fatal("Nạp cấu hình ứng dụng thất bại")
 	}
 
-	// 4. Khởi tạo đối tượng DatasetSyncService với Flat Architecture
-	datasetService, err := service.NewDatasetSyncService(cfg, log)
+	// 4. Khởi tạo đối tượng DatasetSyncService từ tầng Application Orchestrator (app package)
+	datasetService, err := app.NewDatasetSyncService(cfg, log)
 	if err != nil {
 		log.WithError(err).Fatal("Khởi tạo dịch vụ DatasetSyncService thất bại")
 	}

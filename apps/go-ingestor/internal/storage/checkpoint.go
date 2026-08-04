@@ -1,4 +1,4 @@
-package service
+package storage
 
 import (
 	"bytes"
@@ -11,12 +11,12 @@ import (
 
 // CheckpointState đại diện cho trạng thái tiến trình Replay lưu trữ trên MinIO S3
 type CheckpointState struct {
-	DatasetID             string    `json:"dataset_id"`               // ID dataset đang replay
-	DatasetSHA256         string    `json:"dataset_sha256"`           // Mã băm SHA-256 của file zip nguồn
-	SourceFile            string    `json:"source_file"`              // Tên file CSV nguồn (vd: kill_match_stats_final_0.csv)
-	SchemaVersion         string    `json:"schema_version"`           // Phiên bản schema (vd: kill-event-v1)
-	LastAckedRecordIndex  int64     `json:"last_acked_record_index"`  // Record index liên tục cao nhất đã được Kafka ACK thành công
-	UpdatedAt             time.Time `json:"updated_at"`               // Thời điểm lưu checkpoint (UTC)
+	DatasetID            string    `json:"dataset_id"`              // ID dataset đang replay
+	DatasetSHA256        string    `json:"dataset_sha256"`          // Mã băm SHA-256 của file zip nguồn
+	SourceFile           string    `json:"source_file"`             // Tên file CSV nguồn (vd: kill_match_stats_final_0.csv)
+	SchemaVersion        string    `json:"schema_version"`          // Phiên bản schema (vd: kill-event-v1)
+	LastAckedRecordIndex int64     `json:"last_acked_record_index"` // Record index liên tục cao nhất đã được Kafka ACK thành công
+	UpdatedAt            time.Time `json:"updated_at"`              // Thời điểm lưu checkpoint (UTC)
 }
 
 // CheckpointStore định nghĩa interface thao tác lưu trữ Checkpoint State
@@ -29,7 +29,7 @@ type CheckpointStore interface {
 // MinIOCheckpointStore triển khai CheckpointStore với S3 Key theo namespace dataset_sha256
 type MinIOCheckpointStore struct {
 	minioCli  *MinIOClient // MinIO S3 Client
-	objectKey string       // Object key cố định hoặc namespace
+	objectKey string       // Object key cố định theo dataset namespace
 }
 
 // NewMinIOCheckpointStore khởi tạo MinIOCheckpointStore với S3 key theo namespace dataset_sha256
@@ -96,9 +96,9 @@ func (m *MinIOCheckpointStore) Reset(ctx context.Context) error {
 // ContiguousAckTracker quản lý việc theo dõi các record index đã được Kafka ACK
 // Tính toán chính xác highest contiguous ACKed record index (chống out-of-order ack)
 type ContiguousAckTracker struct {
-	mu           sync.Mutex
-	lastAcked    int64
-	pendingAcks  map[int64]bool
+	mu          sync.Mutex
+	lastAcked   int64
+	pendingAcks map[int64]bool
 }
 
 // NewContiguousAckTracker khởi tạo tracker từ index khởi điểm (lastAckedIndex)

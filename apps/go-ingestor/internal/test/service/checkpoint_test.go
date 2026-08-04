@@ -5,19 +5,19 @@ import (
 	"testing"
 	"time"
 
-	"go-ingestor/internal/service"
+	"go-ingestor/internal/storage"
 )
 
 // MockCheckpointStore giả lập CheckpointStore phục vụ Unit Test
 type MockCheckpointStore struct {
-	state *service.CheckpointState
+	state *storage.CheckpointState
 }
 
-func (m *MockCheckpointStore) Load(ctx context.Context) (*service.CheckpointState, error) {
+func (m *MockCheckpointStore) Load(ctx context.Context) (*storage.CheckpointState, error) {
 	return m.state, nil
 }
 
-func (m *MockCheckpointStore) Save(ctx context.Context, state *service.CheckpointState) error {
+func (m *MockCheckpointStore) Save(ctx context.Context, state *storage.CheckpointState) error {
 	m.state = state
 	return nil
 }
@@ -32,7 +32,7 @@ func TestCheckpointStore_SaveAndLoad(t *testing.T) {
 	store := &MockCheckpointStore{}
 	ctx := context.Background()
 
-	state := &service.CheckpointState{
+	state := &storage.CheckpointState{
 		DatasetID:            "test-dataset",
 		SourceFile:           "train_V2.csv",
 		LastAckedRecordIndex: 50,
@@ -57,7 +57,7 @@ func TestCheckpointStore_SaveAndLoad(t *testing.T) {
 // TestCheckpointStore_ResetState kiểm tra tính năng Reset Checkpoint
 func TestCheckpointStore_ResetState(t *testing.T) {
 	store := &MockCheckpointStore{
-		state: &service.CheckpointState{
+		state: &storage.CheckpointState{
 			DatasetID:            "test-dataset",
 			LastAckedRecordIndex: 100,
 		},

@@ -7,9 +7,10 @@ import (
 	"os/signal"
 	"syscall"
 
+	"go-ingestor/internal/app"
 	"go-ingestor/internal/config"
 	"go-ingestor/internal/logging"
-	"go-ingestor/internal/service"
+	"go-ingestor/internal/storage"
 )
 
 func main() {
@@ -30,22 +31,22 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	// 4. Nạp cấu hình ứng dụng từ Environment Variables (Fail-Close)
+	// 4. Nạp cấu hình ứng dụng từ Environment Variables (Fail-Close 100%)
 	cfg, err := config.LoadFromEnv()
 	if err != nil {
 		log.WithError(err).Fatal("Nạp cấu hình ứng dụng thất bại")
 	}
 
-	// 5. Khởi tạo MinIO Client và ReplayService
-	minioCli, err := service.NewMinIOClient(cfg.MinIOEndpoint, cfg.MinIOAccessKey, cfg.MinIOSecretKey, cfg.MinIOBucket, cfg.MinIOUseSSL)
+	// 5. Khởi tạo MinIO Client từ storage package và ReplayService từ app package
+	minioCli, err := storage.NewMinIOClient(cfg.MinIOEndpoint, cfg.MinIOAccessKey, cfg.MinIOSecretKey, cfg.MinIOBucket, cfg.MinIOUseSSL)
 	if err != nil {
 		log.WithError(err).Fatal("Khởi tạo MinIOClient thất bại")
 	}
 
-	replayService := service.NewReplayService(cfg, minioCli, log)
+	replayService := app.NewReplayService(cfg, minioCli, log)
 
 	// 6. Cấu hình các tham số Replay, Stream Simulator Delay và Checkpoint
-	replayConfig := service.ReplayerConfig{
+	replayConfig := app.ReplayerConfig{
 		Limit:             *limitFlag,
 		StartRecord:       *startFlag,
 		DryRun:            *dryRunFlag,

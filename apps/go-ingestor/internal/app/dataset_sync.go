@@ -1,4 +1,4 @@
-package service
+package app
 
 import (
 	"archive/zip"
@@ -16,6 +16,9 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"go-ingestor/internal/config"
+	"go-ingestor/internal/pipeline"
+	"go-ingestor/internal/provider"
+	"go-ingestor/internal/storage"
 )
 
 // DatasetManifest định nghĩa cấu trúc lưu thông tin dataset metadata trên MinIO S3
@@ -33,13 +36,13 @@ type DatasetManifest struct {
 // DatasetSyncService điều phối usecase tải và đồng bộ Dataset từ Kaggle lên MinIO S3
 type DatasetSyncService struct {
 	cfg      *config.Config
-	minioCli *MinIOClient
+	minioCli *storage.MinIOClient
 	log      *logrus.Entry
 }
 
 // NewDatasetSyncService khởi tạo DatasetSyncService
 func NewDatasetSyncService(cfg *config.Config, log *logrus.Entry) (*DatasetSyncService, error) {
-	minioCli, err := NewMinIOClient(
+	minioCli, err := storage.NewMinIOClient(
 		cfg.MinIOEndpoint,
 		cfg.MinIOAccessKey,
 		cfg.MinIOSecretKey,
@@ -103,7 +106,7 @@ func (s *DatasetSyncService) Run(ctx context.Context) error {
 	} else {
 		// Tải stream zip archive trực tiếp từ Kaggle API và ghi thẳng xuống đĩa tạm
 		s.log.WithField("slug", s.cfg.DatasetSlug).Info("Bắt đầu tải dataset archive từ Kaggle API...")
-		kaggleCli := NewKaggleClient(s.cfg.KaggleUsername, s.cfg.KaggleKey)
+		kaggleCli := provider.NewKaggleClient(s.cfg.KaggleUsername, s.cfg.KaggleKey)
 		stream, contentLength, err := kaggleCli.DownloadDatasetStream(ctx, s.cfg.DatasetSlug)
 		if err != nil {
 			return fmt.Errorf("tải stream dataset từ Kaggle thất bại: %w", err)
@@ -111,7 +114,7 @@ func (s *DatasetSyncService) Run(ctx context.Context) error {
 		defer stream.Close()
 
 		// Wrap stream với ProgressReader để hiển thị phần trăm (%) và tốc độ tải trên Terminal
-		progressStream := NewProgressReader(stream, contentLength, fmt.Sprintf("Kaggle Download (%s)", s.cfg.SelectedFile))
+		progressStream := pipeline.NewProgressReader(stream, contentLength, fmt.Sprintf("Kaggle Download (%s)", s.cfg.SelectedFile))
 		hasher := sha256.New()
 
 		// Stream trực tiếp từ Kaggle API xuống đĩa tạm đồng thời tính toán SHA-256 Checksum

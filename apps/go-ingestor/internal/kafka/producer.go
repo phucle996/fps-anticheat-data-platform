@@ -1,4 +1,4 @@
-package service
+package kafka
 
 import (
 	"context"
@@ -11,40 +11,30 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"go-ingestor/internal/contract"
+	"go-ingestor/internal/pipeline"
 )
 
-// Producer định nghĩa interface phát tin nhắn vào Kafka Cluster (HA & Fail-Close)
-type Producer interface {
-	// ProduceEvent phát EventEnvelope hợp lệ vào Raw Topic (Key = match_id)
-	ProduceEvent(ctx context.Context, envelope *contract.EventEnvelope) error
-	// ProduceKillEvent phát KillEventEnvelope hợp lệ vào Raw Topic (Key = match_id)
-	ProduceKillEvent(ctx context.Context, envelope *contract.KillEventEnvelope) error
-	// ProduceInvalid phát InvalidRecord vi phạm vào DLQ Topic (Key = source_file)
-	ProduceInvalid(ctx context.Context, invalid *contract.InvalidRecord) error
-	// Close đóng các Kafka writers và flush dữ liệu an toàn
-	Close() error
-}
-
-// KafkaProducer triển khai Producer interface bằng thư viện Pure Go segmentio/kafka-go
+// KafkaProducer triển khai Producer interface của pipeline bằng thư viện Pure Go segmentio/kafka-go
+// Cấu hình nghiêm ngặt cho môi trường Cloud-Native High Availability (HA) & Fail-Close
 type KafkaProducer struct {
-	rawWriter     *kafka.Writer // Writer phát dữ liệu hợp lệ vào Raw Topic
-	invalidWriter *kafka.Writer // Writer phát dữ liệu lỗi vào DLQ Topic
-	log           *logrus.Entry // Logger JSON
+	rawWriter     *kafka.Writer // Writer phát dữ liệu hợp lệ vào Raw Topic (pubg.v1.player-stat.raw)
+	invalidWriter *kafka.Writer // Writer phát dữ liệu lỗi vào DLQ Topic (pubg.v1.invalid)
+	log           *logrus.Entry // Logger JSON Logrus
 }
 
-// NewKafkaProducer khởi tạo KafkaProducer (Tin tưởng tham số đã được Thượng nguồn validate)
+// NewKafkaProducer khởi tạo KafkaProducer với cấu hình HA & Fail-Close (acks=all, Gzip Compression)
 func NewKafkaProducer(brokers []string, rawTopic, invalidTopic string, log *logrus.Entry) (*KafkaProducer, error) {
 	// 1. Cấu hình Writer cho Raw Topic (pubg.v1.player-stat.raw)
 	rawWriter := &kafka.Writer{
 		Addr:         kafka.TCP(brokers...),
 		Topic:        rawTopic,
-		Balancer:     &kafka.Hash{},         // Partitioning theo Message Key (match_id)
-		RequiredAcks: kafka.RequireAll,      // acks=all (Bắt buộc ISR xác nhận)
-		Compression:  compress.Gzip,         // Nén Gzip tương thích 100% với librdkafka Alpine Linux Consumer
-		MaxAttempts:  5,                     // Retry 5 lần khi gặp sự cố tạm thời
+		Balancer:     &kafka.Hash{},         // Partitioning theo Message Key (match_id) để đảm bảo Per-Match Strict Order
+		RequiredAcks: kafka.RequireAll,      // acks=all (Bắt buộc toàn bộ ISR Replicas xác nhận trước khi ACK)
+		Compression:  compress.Gzip,         // Nén Gzip tiết kiệm bandwidth mạng
+		MaxAttempts:  5,                     // Retry 5 lần khi gặp sự cố mạng tạm thời
 		BatchTimeout: 10 * time.Millisecond, // Flush nhịp micro-batch 10ms
-		BatchSize:    100,                   // Batch tối đa 100 tin nhắn
-		Async:        false,                 // Đồng bộ để nhận kết quả xác nhận ngay (Fail-Close)
+		BatchSize:    100,                   // Gom batch tối đa 100 tin nhắn per network flush request
+		Async:        false,                 // Gửi đồng bộ để nhận xác nhận ngay lập tức (Fail-Close Enforced)
 	}
 
 	// 2. Cấu hình Writer cho Invalid DLQ Topic (pubg.v1.invalid)
@@ -53,7 +43,7 @@ func NewKafkaProducer(brokers []string, rawTopic, invalidTopic string, log *logr
 		Topic:        invalidTopic,
 		Balancer:     &kafka.Hash{},
 		RequiredAcks: kafka.RequireAll,
-		Compression:  compress.Gzip,         // Nén Gzip tương thích 100% với librdkafka Alpine Linux Consumer
+		Compression:  compress.Gzip,
 		MaxAttempts:  5,
 		BatchTimeout: 10 * time.Millisecond,
 		BatchSize:    100,
@@ -66,7 +56,7 @@ func NewKafkaProducer(brokers []string, rawTopic, invalidTopic string, log *logr
 		"invalid_topic": invalidTopic,
 		"acks":          "all",
 		"compression":   "gzip",
-	}).Info("Đã khởi tạo Kafka Producer (HA & Fail-Close ready)")
+	}).Info("Khởi tạo thành công Kafka Producer (HA & Fail-Close Ready)")
 
 	return &KafkaProducer{
 		rawWriter:     rawWriter,
@@ -75,22 +65,19 @@ func NewKafkaProducer(brokers []string, rawTopic, invalidTopic string, log *logr
 	}, nil
 }
 
-// ProduceEvent phát tin nhắn EventEnvelope hợp lệ vào Kafka (Key = match_id)
+// ProduceEvent phát tin nhắn EventEnvelope hợp lệ vào Kafka Raw Topic (Key = match_id)
 func (kp *KafkaProducer) ProduceEvent(ctx context.Context, envelope *contract.EventEnvelope) error {
-	// Serialize EventEnvelope thành byte JSON trực tiếp (không re-validate nil)
 	payloadBytes, err := json.Marshal(envelope)
 	if err != nil {
 		return fmt.Errorf("serialize EventEnvelope thất bại: %w", err)
 	}
 
-	// Tạo Kafka Message với Message Key = match_id để đảm bảo Strict Ordering per match
 	msg := kafka.Message{
 		Key:   []byte(envelope.MatchID),
 		Value: payloadBytes,
 		Time:  envelope.IngestTime,
 	}
 
-	// Gửi tin nhắn vào Raw Topic
 	if err := kp.rawWriter.WriteMessages(ctx, msg); err != nil {
 		kp.log.WithFields(logrus.Fields{
 			"event_id": envelope.EventID,
@@ -102,7 +89,7 @@ func (kp *KafkaProducer) ProduceEvent(ctx context.Context, envelope *contract.Ev
 	return nil
 }
 
-// ProduceKillEvent phát tin nhắn KillEventEnvelope hợp lệ vào Kafka (Key = match_id)
+// ProduceKillEvent phát tin nhắn KillEventEnvelope hợp lệ vào Kafka Raw Topic (Key = match_id)
 func (kp *KafkaProducer) ProduceKillEvent(ctx context.Context, envelope *contract.KillEventEnvelope) error {
 	payloadBytes, err := json.Marshal(envelope)
 	if err != nil {
@@ -167,3 +154,6 @@ func (kp *KafkaProducer) Close() error {
 	kp.log.Info("Đã đóng kết nối Kafka Producer an toàn.")
 	return nil
 }
+
+// Compile-time interface assertion
+var _ pipeline.Producer = (*KafkaProducer)(nil)

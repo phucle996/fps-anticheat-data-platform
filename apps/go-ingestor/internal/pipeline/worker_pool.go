@@ -1,4 +1,4 @@
-package service
+package pipeline
 
 import (
 	"context"
@@ -8,7 +8,7 @@ import (
 	"go-ingestor/internal/contract"
 )
 
-// IngestionResult chứa kết quả sau khi parse & normalize 1 bản ghi CSV thô
+// IngestionResult chứa kết quả sau khi parse & normalize 1 bản ghi CSV thô từ Worker Pool
 type IngestionResult struct {
 	Envelope      interface{}             // EventEnvelope (*contract.EventEnvelope hoặc *contract.KillEventEnvelope) hợp lệ
 	InvalidRecord *contract.InvalidRecord // InvalidRecord vi phạm schema (nếu có)
@@ -16,15 +16,16 @@ type IngestionResult struct {
 }
 
 // IngestionWorkerPool quản lý nhóm Goroutines xử lý parse/normalize song song đa nhân CPU
+// Áp dụng kỹ thuật Lock-Free Atomics cho bộ đếm và Chống Race Condition 100%
 type IngestionWorkerPool struct {
-	workerCount int                         // Số lượng Goroutine worker song song (mặc định: runtime.NumCPU() * 2)
-	rawJobCh    chan *RawRecord             // Channel đẩy bản ghi thô từ CSV Reader
-	resultCh    chan *IngestionResult       // Channel nhận kết quả đã chuẩn hóa
-	normalizer  Normalizer                  // Interfaced Normalizer đa schema
-	wg          sync.WaitGroup              // WaitGroup đồng bộ vòng đời workers
-	recordsRead atomic.Int64                // Bộ đếm atomic an toàn thread-safe cho số bản ghi đã đọc
-	validRecs   atomic.Int64                // Bộ đếm atomic cho số bản ghi hợp lệ
-	invalidRecs atomic.Int64                // Bộ đếm atomic cho số bản ghi vi phạm
+	workerCount int                   // Số lượng Goroutine worker song song (mặc định: runtime.NumCPU() * 2)
+	rawJobCh    chan *RawRecord       // Channel đẩy bản ghi thô từ CSV Reader
+	resultCh    chan *IngestionResult // Channel nhận kết quả đã chuẩn hóa
+	normalizer  Normalizer            // Interface Normalizer đa schema (Stateless & Thread-safe)
+	wg          sync.WaitGroup        // WaitGroup đồng bộ vòng đời workers
+	recordsRead atomic.Int64          // Bộ đếm atomic an toàn thread-safe cho số bản ghi đã đọc
+	validRecs   atomic.Int64          // Bộ đếm atomic cho số bản ghi hợp lệ
+	invalidRecs atomic.Int64          // Bộ đếm atomic cho số bản ghi vi phạm
 }
 
 // NewIngestionWorkerPool khởi tạo Worker Pool với kích thước channel đệm phù hợp

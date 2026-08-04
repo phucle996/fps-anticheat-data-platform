@@ -9,7 +9,8 @@ import (
 
 	"github.com/sirupsen/logrus"
 
-	"go-ingestor/internal/service"
+	"go-ingestor/internal/app"
+	"go-ingestor/internal/pipeline"
 )
 
 // TestReplayer_DryRunAndLimit kiểm tra Replay Loop với các tùy chọn DryRun, StartRecord và Limit
@@ -22,20 +23,20 @@ player-2,group-10,match-100,2,210.0,0,850.5,0.0,0.0,900.0,0.85
 player-3,group-11,match-100,0,45.0,0,300.0,0.0,0.0,400.0,0.20`
 
 	buf := bytes.NewBufferString(csvData)
-	p, err := service.NewCSVParser(buf, "test.csv")
+	p, err := pipeline.NewCSVParser(buf, "test.csv")
 	if err != nil {
 		t.Fatalf("Khởi tạo CSVParser thất bại: %v", err)
 	}
 
-	normalizer := service.NewPlayerStatNormalizer("test-dataset")
+	normalizer := pipeline.NewPlayerStatNormalizer("test-dataset")
 
-	cfg := service.ReplayerConfig{
+	cfg := app.ReplayerConfig{
 		Limit:       2,
 		StartRecord: 1,
 		DryRun:      true,
 	}
 
-	replayerEngine := service.NewReplayer(cfg, p, normalizer, nil, nil, "test-dataset", "test.csv", "sha256-test", logger)
+	replayerEngine := app.NewReplayer(cfg, p, normalizer, nil, nil, "test-dataset", "test.csv", "sha256-test", logger)
 	stats, err := replayerEngine.Run(context.Background())
 	if err != nil {
 		t.Fatalf("Replayer.Run trả về lỗi bất ngờ: %v", err)
@@ -62,20 +63,20 @@ func TestReplayer_StartRecordOffset(t *testing.T) {
 	}
 	defer file.Close()
 
-	p, err := service.NewCSVParser(file, "train_V2.csv")
+	p, err := pipeline.NewCSVParser(file, "train_V2.csv")
 	if err != nil {
 		t.Fatalf("Khởi tạo CSVParser thất bại: %v", err)
 	}
 
-	normalizer := service.NewPlayerStatNormalizer("test-dataset")
+	normalizer := pipeline.NewPlayerStatNormalizer("test-dataset")
 
-	cfg := service.ReplayerConfig{
+	cfg := app.ReplayerConfig{
 		Limit:       0,
 		StartRecord: 2,
 		DryRun:      true,
 	}
 
-	replayerEngine := service.NewReplayer(cfg, p, normalizer, nil, nil, "test-dataset", "train_V2.csv", "sha256-test", logger)
+	replayerEngine := app.NewReplayer(cfg, p, normalizer, nil, nil, "test-dataset", "train_V2.csv", "sha256-test", logger)
 	stats, err := replayerEngine.Run(context.Background())
 	if err != nil {
 		t.Fatalf("Replayer.Run trả về lỗi bất ngờ: %v", err)
@@ -94,14 +95,14 @@ func TestReplayer_ContextCancellation(t *testing.T) {
 player-1,group-10,match-100,5,550.5,2,1200.0,0.0,0.0,900.0,0.85`
 
 	buf := bytes.NewBufferString(csvData)
-	p, _ := service.NewCSVParser(buf, "test.csv")
-	normalizer := service.NewPlayerStatNormalizer("test-dataset")
+	p, _ := pipeline.NewCSVParser(buf, "test.csv")
+	normalizer := pipeline.NewPlayerStatNormalizer("test-dataset")
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	cfg := service.ReplayerConfig{DryRun: true}
-	replayerEngine := service.NewReplayer(cfg, p, normalizer, nil, nil, "test-dataset", "test.csv", "sha256-test", logger)
+	cfg := app.ReplayerConfig{DryRun: true}
+	replayerEngine := app.NewReplayer(cfg, p, normalizer, nil, nil, "test-dataset", "test.csv", "sha256-test", logger)
 
 	stats, err := replayerEngine.Run(ctx)
 	if err != nil && !errors.Is(err, context.Canceled) {

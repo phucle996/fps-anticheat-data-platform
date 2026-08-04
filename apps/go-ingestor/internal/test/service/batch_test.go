@@ -6,20 +6,20 @@ import (
 	"time"
 
 	"go-ingestor/internal/contract"
-	"go-ingestor/internal/service"
+	"go-ingestor/internal/pipeline"
 )
 
 // TestBatchBuffer_RecordCountBoundary kiểm tra trigger Flush khi bộ đệm đạt MaxBatchSize
 func TestBatchBuffer_RecordCountBoundary(t *testing.T) {
 	mockProd := &MockProducer{}
 
-	cfg := service.BatchConfig{
+	cfg := pipeline.BatchConfig{
 		MaxBatchSize:  2, // Batch tối đa 2 bản ghi
 		MaxBatchBytes: 100000,
 		FlushInterval: 1 * time.Second,
 	}
 
-	flusher := service.NewBatchFlusher(cfg, mockProd)
+	flusher := pipeline.NewBatchFlusher(cfg, mockProd)
 
 	env1 := &contract.EventEnvelope{EventID: "ev-1", MatchID: "m-1"}
 	env2 := &contract.EventEnvelope{EventID: "ev-2", MatchID: "m-1"}
@@ -47,13 +47,13 @@ func TestBatchBuffer_RecordCountBoundary(t *testing.T) {
 func TestBatchBuffer_ByteSizeBoundary(t *testing.T) {
 	mockProd := &MockProducer{}
 
-	cfg := service.BatchConfig{
+	cfg := pipeline.BatchConfig{
 		MaxBatchSize:  1000,
 		MaxBatchBytes: 150, // Ngưỡng dung lượng byte nhỏ 150 bytes
 		FlushInterval: 1 * time.Second,
 	}
 
-	flusher := service.NewBatchFlusher(cfg, mockProd)
+	flusher := pipeline.NewBatchFlusher(cfg, mockProd)
 
 	env1 := &contract.EventEnvelope{EventID: "ev-large-1", MatchID: "m-100", PlayerID: "player-long-id-12345"}
 
@@ -70,13 +70,13 @@ func TestBatchBuffer_ByteSizeBoundary(t *testing.T) {
 func TestBatchBuffer_TimerFlush(t *testing.T) {
 	mockProd := &MockProducer{}
 
-	cfg := service.BatchConfig{
+	cfg := pipeline.BatchConfig{
 		MaxBatchSize:  100, // Ngưỡng size lớn để không flush theo count
 		MaxBatchBytes: 100000,
 		FlushInterval: 20 * time.Millisecond, // Timer flush 20ms
 	}
 
-	flusher := service.NewBatchFlusher(cfg, mockProd)
+	flusher := pipeline.NewBatchFlusher(cfg, mockProd)
 	ctx := context.Background()
 
 	flusher.StartTimer(ctx)
@@ -100,13 +100,13 @@ func TestBatchBuffer_TimerFlush(t *testing.T) {
 func TestBatchBuffer_EOFFlush(t *testing.T) {
 	mockProd := &MockProducer{}
 
-	cfg := service.BatchConfig{
+	cfg := pipeline.BatchConfig{
 		MaxBatchSize:  100,
 		MaxBatchBytes: 100000,
 		FlushInterval: 10 * time.Minute,
 	}
 
-	flusher := service.NewBatchFlusher(cfg, mockProd)
+	flusher := pipeline.NewBatchFlusher(cfg, mockProd)
 	ctx := context.Background()
 
 	env1 := &contract.EventEnvelope{EventID: "ev-eof", MatchID: "m-1"}

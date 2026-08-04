@@ -1,16 +1,50 @@
 # Go Dataset Ingestor Service (`apps/go-ingestor`)
 
-Dịch vụ **Go Dataset Ingestor** đóng vai trò là cổng nạp dữ liệu thô (Raw Data Ingestor) trung tâm cho toàn bộ nền tảng **PUBG PC Anti-Cheat Data Platform**. 
+The **Go Dataset Ingestor** service acts as the central Raw Data Ingestor for the entire **PUBG PC Anti-Cheat Data Platform**.
 
-Ứng dụng tải/nạp các tập dữ liệu PUBG PC Telemetry từ Kaggle/CSV, thực hiện chuẩn hóa dữ liệu thô sang **Canonical Event Envelope Schema**, kiểm tra validation cơ bản và đẩy luồng dữ liệu sự kiện vào **Kafka Raw Topic (`pubg.v1.player-stat.raw`)**.
+The application downloads/ingests PUBG PC Telemetry datasets from Kaggle/CSV files, normalizes raw telemetry into the **Canonical Event Envelope Schema**, performs base data quality validation, and streams the event pipeline into the **Kafka Raw Topic (`pubg.v1.player-stat.raw`)**.
 
 ---
 
-## 🏛️ Kiến Trúc và Luồng Dữ Liệu (Architecture & Flow)
+## 🏛️ System Architecture
+
+The service is designed using a **Clean Modular Pipeline Architecture** with strict Separation of Concerns:
 
 ```text
 +-----------------------------------------------------------------------------------------+
-|                    GO DATASET INGESTOR PIPELINE ARCHITECTURE                            |
+|                    GO DATASET INGESTOR MODULAR ARCHITECTURE                             |
++-----------------------------------------------------------------------------------------+
+
+  [ CLI Entrypoints ]        cmd/dataset-sync/main.go        cmd/replay/main.go
+                                         |                           |
+                                         v                           v
+  [ Application Layer ]      +---------------------------------------------------+
+                             |               internal/app                        |
+                             |      (DatasetSyncService, ReplayService)          |
+                             +---------------------------------------------------+
+                                   /             |                \
+                                  v              v                 v
+  [ Processing Pipeline ]  internal/pipeline     |            internal/domain
+                           (parser, normalizer,  |            (contract envelopes,
+                            batcher, worker_pool)|             invalid records)
+                                                 |
+  [ External Infrastructure ]                    v
+                          +------------------------------------------------------+
+                          | internal/storage  | internal/kafka | internal/provider|
+                          | (MinIO S3 SDK,    | (Segmentio     | (Kaggle REST API |
+                          |  Checkpoint Engine|  Producer)     |  Client)         |
+                          +------------------------------------------------------+
+```
+
+---
+
+## 🔄 Data Flow
+
+The end-to-end processing data pipeline from raw source to the Kafka Brokers follows 5 main stages:
+
+```text
++-----------------------------------------------------------------------------------------+
+|                           DATA FLOW PIPELINE STAGES                                     |
 +-----------------------------------------------------------------------------------------+
 
                  +-----------------------------------------------+
@@ -18,86 +52,75 @@ Dịch vụ **Go Dataset Ingestor** đóng vai trò là cổng nạp dữ liệu
                  |  (pubg-match-ground-truth.csv)                |
                  +-----------------------------------------------+
                                          |
-                                         | (Kaggle API Downloader / File Stream Reader)
+                                         | 1. Stream Reading (provider.KaggleClient / pipeline.CSVParser)
                                          v
                  +-----------------------------------------------+
                  | 1. Kaggle Downloader / CSV Reader             |
-                 |    (Streaming CSV Buffer Reader)              |
+                 |    (Zero-RAM Streaming CSV Buffer Reader)     |
                  +-----------------------------------------------+
                                          |
+                                         | 2. Anonymization & Normalization
                                          v
                  +-----------------------------------------------+
                  | 2. Canonical Schema Normalizer                |
-                 |    (SHA-256 Hashing player_id & match_id)     |
+                 |    (pipeline.PlayerStatNormalizer - SHA-256)  |
                  +-----------------------------------------------+
                                          |
+                                         | 3. Quality Rules Verification
                                          v
                  +-----------------------------------------------+
                  | 3. Base Data Quality Validator                |
-                 |    (Rule Check: Schema, Bounds & Metrics)     |
+                 |    (Pass -> EventEnvelope | Fail -> DLQ Record)|
                  +-----------------------------------------------+
                                          |
+                                         | 4. Micro-Batch Accumulation & Checkpointing
                                          v
                  +-----------------------------------------------+
                  | 4. Batching & Checkpoint State Engine         |
-                 |    (400 Records/Batch + Replay Resume State)  |
+                 |    (pipeline.BatchFlusher + storage.Checkpoint|
                  +-----------------------------------------------+
                                          |
-                                         | (Async High-Throughput Producer)
+                                         | 5. High-Throughput Async Produce (kafka.KafkaProducer)
                                          v
                  +-----------------------------------------------+
                  |  Apache Kafka Cluster                         |
-                 |  (Topic: pubg.v1.player-stat.raw)             |
+                 |  (Topic: pubg.v1.player-stat.raw / DLQ)       |
                  +-----------------------------------------------+
 ```
 
 ---
 
-## 🚀 Tính Năng Nổi Bật (Core Features)
+## ⚙️ Environment Configuration (Fail-Close Enforced)
 
-1. **Kaggle PUBG Telemetry Downloader**:
-   - Tự động tải các tập dữ liệu PUBG PC public dataset chính thức thông qua Kaggle API.
-2. **Canonical Schema Normalization**:
-   - Chuẩn hóa tên trường, băm bảo mật định danh người chơi và trận đấu bằng SHA-256 (`player_id_hash`, `match_id`).
-3. **Fail-Close 100% Environment Configuration**:
-   - Nạp biến môi trường bắt buộc, tự động ném ra lỗi `ValueError/Error` ngắt ứng dụng ngay tức thì nếu thiếu bất kỳ biến cấu hình nào (Zero Default Fallback).
-4. **Base Rule Validation**:
-   - Lọc các bản ghi lỗi nghiêm trọng (`kills < 0`, `win_place_perc < 0.0` hoặc `> 1.0`, `headshot_kills > total_kills`).
-5. **Batching & Checkpoint Resumption**:
-   - Gom dữ liệu theo từng Batch (ví dụ 400 bản ghi/batch), ghi nhận Checkpoint vị trí đọc để hỗ trợ Replay và phục hồi lỗi (Fault Tolerance).
-
----
-
-## ⚙️ Cấu Hình Biến Môi Trường (Fail-Close Enforced)
-
-| Biến Môi Trường | Mô Tả | Ví Dụ |
+| Environment Variable | Description | Example |
 | :--- | :--- | :--- |
-| `KAFKA_BROKERS` | Danh sách Kafka Brokers | `localhost:9092` |
-| `KAFKA_TOPIC_RAW` | Topic Kafka nạp dữ liệu thô | `pubg.v1.player-stat.raw` |
+| `KAFKA_BROKERS` | List of Kafka Brokers | `localhost:9092` |
+| `KAFKA_TOPIC_RAW` | Target Kafka topic for raw event stream | `pubg.v1.player-stat.raw` |
+| `KAFKA_INVALID_TOPIC` | Target Kafka topic for Dead-Letter Queue (DLQ) | `pubg.v1.invalid` |
 | `KAGGLE_USERNAME` | Kaggle API Username | `my_kaggle_user` |
 | `KAGGLE_KEY` | Kaggle API Token Key | `1234567890abcdef` |
-| `MINIO_ENDPOINT` | Endpoint S3 MinIO Object Storage | `http://localhost:9000` |
-| `MINIO_BUCKET_DATA` | Bucket chứa Data Lake Parquet | `fps-anticheat-datalake` |
-| `MINIO_ACCESS_KEY` | Access Key MinIO | `minioadmin` |
-| `MINIO_SECRET_KEY` | Secret Key MinIO | `minioadmin` |
+| `MINIO_ENDPOINT` | MinIO S3 Object Storage Endpoint | `localhost:9000` |
+| `MINIO_BUCKET` | Main Bucket name for Data Lake storage | `fps-anticheat-datalake` |
+| `MINIO_ACCESS_KEY` | MinIO Access Key | `minioadmin` |
+| `MINIO_SECRET_KEY` | MinIO Secret Key | `minioadmin` |
 
 ---
 
-## 🛠️ Hướng Dẫn Chạy Dịch Vụ (Execution Commands)
+## 🛠️ Execution Commands
 
-### 1. Kiểm thử Unit Test Suite
+### 1. Run Unit Test Suite
 ```bash
 cd apps/go-ingestor
 go test -v ./...
 ```
 
-### 2. Khởi chạy Sync Dữ Liệu Từ Kaggle
+### 2. Launch Dataset Synchronization from Kaggle
 ```bash
 cd apps/go-ingestor
-go run cmd/sync/main.go
+go run cmd/dataset-sync/main.go
 ```
 
-### 3. Khởi chạy Replay Daemon Đẩy Sự Kiện Vào Kafka
+### 3. Launch Streaming Replay Daemon to Kafka
 ```bash
 cd apps/go-ingestor
 go run cmd/replay/main.go
@@ -105,18 +128,23 @@ go run cmd/replay/main.go
 
 ---
 
-## 📂 Cấu Trúc Thư Mục (Directory Structure)
+## 📂 Directory Structure
 
 ```text
 apps/go-ingestor/
 ├── cmd/
-│   ├── sync/main.go           # CLI entrypoint đồng bộ dữ liệu Kaggle
-│   └── replay/main.go         # CLI entrypoint Replay Daemon đẩy Kafka
+│   ├── dataset-sync/main.go   # CLI Entrypoint for Kaggle dataset synchronization
+│   └── replay/main.go         # CLI Entrypoint for Kafka Replay Streaming Daemon
 ├── internal/
-│   ├── config/config.go       # Fail-Close Environment Loader
-│   ├── normalize/             # Normalizer băm ID & chuẩn hóa canonical schema
-│   ├── service/               # Core services (Checkpoint, Kaggle, Batching, Kafka Producer)
-│   └── test/                  # Unit & Integration test suites
-├── go.mod                     # Go module definitions
-└── README.md                  # Hướng dẫn chi tiết dịch vụ
+│   ├── app/                   # Application Orchestration & Use Cases (dataset_sync, replay)
+│   ├── config/                # Fail-Close Environment Configuration Loader
+│   ├── contract/              # Business Event Envelopes & DLQ Data Models
+│   ├── kafka/                 # Kafka Producer Infrastructure (HA & Fail-Close)
+│   ├── logging/               # Logrus JSON Logger Formatter
+│   ├── pipeline/              # Pure Data Processing Pipeline (parser, normalizer, batcher, worker_pool)
+│   ├── provider/              # External Data Source Providers (Kaggle API client)
+│   ├── storage/               # Object Storage & Checkpoint State Engine (minio, checkpoint)
+│   └── test/                  # Unit Test Suites
+├── go.mod                     # Go module definition
+└── README.md                  # Service documentation
 ```
