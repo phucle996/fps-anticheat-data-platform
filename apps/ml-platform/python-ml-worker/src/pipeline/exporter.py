@@ -1,24 +1,22 @@
 import json
 import hashlib
-import boto3
-import numpy as np
 from datetime import datetime, timezone
-from typing import Dict, Any, Tuple
-from src.trainer import FEATURE_CONTRACT
-from src.config import Config
+from typing import Dict, Any
+
+from src.pipeline.trainer import FEATURE_CONTRACT
 
 class ONNXExporter:
-    """ONNXExporter đóng gói chuyển đổi mô hình ML sang định dạng ONNX, xuất Bundle Manifest và upload MinIO S3 Model Bucket"""
+    """Đóng gói chuyển đổi mô hình ML sang định dạng ONNX, tính checksum SHA-256 và xuất Model Bundle hoàn chỉnh"""
 
     @staticmethod
     def export_bundle(model: Any, metrics: Dict[str, Any], version: str = "v1") -> Dict[str, bytes]:
         """Xuất toàn bộ ONNX Model Bundle hoàn chỉnh"""
-        print(f"[ONNX EXPORTER] Đóng gói ONNX Model Bundle phiên bản {version}...")
+        print(f"[ONNX EXPORTER] Đóng gói ONNX Model Bundle phiên bản {version}...", flush=True)
 
         # Lấy danh sách đặc trưng thực tế đã dùng khi huấn luyện
         features_used = metrics.get("features_used", FEATURE_CONTRACT)
 
-        # 1. Chuyển đổi mô hình scikit-learn sang ONNX format
+        # 1. Chuyển đổi mô hình ML sang định dạng ONNX
         onnx_bytes = ONNXExporter._convert_to_onnx(model, feature_cols=features_used)
 
         # 2. Tạo feature_schema.json
@@ -67,7 +65,7 @@ class ONNXExporter:
         }
         checksum_bytes = json.dumps(checksums, indent=2).encode("utf-8")
 
-        print(f"[ONNX EXPORTER SUCCESS] SHA-256 model.onnx: {onnx_sha256}")
+        print(f"[ONNX EXPORTER SUCCESS] SHA-256 model.onnx: {onnx_sha256}", flush=True)
 
         return {
             "model.onnx": onnx_bytes,
@@ -77,31 +75,6 @@ class ONNXExporter:
             "training_manifest.json": manifest_bytes,
             "checksums.sha256": checksum_bytes,
         }
-
-    @staticmethod
-    def upload_bundle_to_minio(bundle: Dict[str, bytes], config: Config, version: str = "v1") -> bool:
-        """Upload toàn bộ Model Bundle (model.onnx, manifests) lên MinIO S3 bucket pubg-models đảm bảo tính bền vững khi restart"""
-        try:
-            print(f"[MINIO UPLOAD] Đang đẩy ONNX Model Bundle '{version}' lên S3 Bucket '{config.minio_bucket_model}'...")
-            s3 = boto3.client(
-                "s3",
-                endpoint_url=config.minio_endpoint,
-                aws_access_key_id=config.minio_access_key,
-                aws_secret_access_key=config.minio_secret_key,
-            )
-            for file_name, content_bytes in bundle.items():
-                s3_key = f"{version}/{file_name}"
-                s3.put_object(
-                    Bucket=config.minio_bucket_model,
-                    Key=s3_key,
-                    Body=content_bytes
-                )
-                print(f"  └─ Uploaded s3://{config.minio_bucket_model}/{s3_key}")
-            print(f"[MINIO UPLOAD SUCCESS] Đã lưu trữ model.onnx thành công lên MinIO S3!")
-            return True
-        except Exception as err:
-            print(f"[WARN] Upload MinIO S3 thất bại ({err}) - Đã bỏ qua cho môi trường dev local")
-            return False
 
     @staticmethod
     def _convert_to_onnx(model: Any, feature_cols: list = None) -> bytes:
@@ -118,8 +91,7 @@ class ONNXExporter:
                 from onnxmltools import convert_xgboost
                 from onnxmltools.convert.common.data_types import FloatTensorType
 
-                print(f"[ONNX EXPORTER] Đang chuyển đổi mô hình XGBoost ({model_type_name}) sang ONNX...")
-                # Quy chuẩn feature_names của XGBoost Booster về dạng f0, f1, f2... theo đúng định dạng onnxmltools yêu cầu
+                print(f"[ONNX EXPORTER] Đang chuyển đổi mô hình XGBoost ({model_type_name}) sang ONNX...", flush=True)
                 if hasattr(model, "get_booster"):
                     model.get_booster().feature_names = [f"f{i}" for i in range(len(feature_cols))]
 
@@ -133,7 +105,7 @@ class ONNXExporter:
                 from skl2onnx import convert_sklearn
                 from skl2onnx.common.data_types import FloatTensorType
 
-                print(f"[ONNX EXPORTER] Đang chuyển đổi mô hình Scikit-Learn ({model_type_name}) sang ONNX...")
+                print(f"[ONNX EXPORTER] Đang chuyển đổi mô hình Scikit-Learn ({model_type_name}) sang ONNX...", flush=True)
                 initial_type = [("float_input", FloatTensorType([None, len(feature_cols)]))]
                 onnx_model = convert_sklearn(
                     model,
@@ -141,11 +113,11 @@ class ONNXExporter:
                     options={id(model): {"zipmap": False}},
                 )
 
-            # Validate ONNX model xem cấu trúc graph có hợp lệ 100% hay không (Fail-Close)
+            # Validate cấu trúc ONNX Graph (Fail-Close)
             onnx.checker.check_model(onnx_model)
 
             onnx_bytes = onnx_model.SerializeToString()
-            print(f"[ONNX EXPORTER] Conversion & Validation ONNX model ({model_type_name}) thành công! ({len(onnx_bytes)} bytes)")
+            print(f"[ONNX EXPORTER] Conversion & Validation ONNX model ({model_type_name}) thành công! ({len(onnx_bytes)} bytes)", flush=True)
             return onnx_bytes
 
         except Exception as err:

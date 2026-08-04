@@ -3,7 +3,7 @@ import numpy as np
 import pandas as pd
 from typing import Tuple, Dict, Any
 from sklearn.model_selection import GroupShuffleSplit
-from sklearn.ensemble import RandomForestClassifier, IsolationForest
+from sklearn.ensemble import IsolationForest
 from sklearn.metrics import precision_score, recall_score, f1_score, average_precision_score
 
 # Ẩn các cảnh báo lặt vặt (UserWarning) của XGBoost khi truyền CPU DataFrame cho CUDA GPU Booster
@@ -24,20 +24,22 @@ UNSUPERVISED_FEATURES = FEATURE_CONTRACT
 
 class ModelTrainer:
     """ModelTrainer huấn luyện mô hình ML theo 2 chế độ:
-    - Supervised (RandomForest): khi có cột `is_suspicious` trong data
-    - Unsupervised (IsolationForest): khi không có ground truth
+    - Supervised: khi có cột `is_suspicious` trong dữ liệu
+    - Unsupervised (IsolationForest + Surrogate Classifier): khi không có ground truth
+    Bắt buộc 100% GPU Acceleration (XGBoost CUDA), Zero CPU Fallback!
     """
 
     def __init__(self, features: list = None):
         self.features = features or FEATURE_CONTRACT
 
     def train_pipeline(self, df: pd.DataFrame) -> Tuple[Any, Dict[str, Any]]:
+        """Thực thi pipeline huấn luyện mô hình ML dựa trên dữ liệu đầu vào"""
         total_records = len(df)
         print(f"\n[TRAINER PROGRESS 0%] Bắt đầu tiến trình huấn luyện ML trên {total_records:,} dòng dữ liệu...", flush=True)
 
         if total_records < 20:
             raise ValueError(
-                f"[FAIL-CLOSE] Cần tối thiểu 20 records để train, chỉ nhận {total_records}"
+                f"[FAIL-CLOSE] Cần tối thiểu 20 records để train, chỉ nhận được {total_records}"
             )
         has_ground_truth = "is_suspicious" in df.columns and df["is_suspicious"].notna().any()
 
@@ -47,19 +49,23 @@ class ModelTrainer:
             return self._train_unsupervised(df)
 
     def _build_classifier(self) -> Tuple[Any, str]:
-        """Khởi tạo mô hình phân loại XGBoost GPU (CUDA). Yêu cầu nghiêm ngặt GPU acceleration, không fallback CPU."""
-        import xgboost as xgb
-        # Khởi tạo XGBoost Classifier bắt buộc chạy trên NVIDIA GPU với CUDA acceleration
-        model = xgb.XGBClassifier(
-            n_estimators=100,
-            max_depth=10,
-            random_state=42,
-            tree_method="hist",
-            device="cuda",
-            eval_metric="logloss"
-        )
-        print("[GPU ACCELERATION REQUIRED] Khởi tạo thành công mô hình XGBoost Classifier trên NVIDIA GPU (CUDA)...", flush=True)
-        return model, "XGBClassifier (CUDA GPU)"
+        """Khởi tạo mô hình phân loại XGBoost GPU (CUDA). Yêu cầu nghiêm ngặt GPU acceleration, 100% Fail-Close không chấp nhận CPU Fallback."""
+        try:
+            import xgboost as xgb
+            model = xgb.XGBClassifier(
+                n_estimators=100,
+                max_depth=10,
+                random_state=42,
+                tree_method="hist",
+                device="cuda",
+                eval_metric="logloss"
+            )
+            print("[GPU ACCELERATION REQUIRED] Khởi tạo thành công mô hình XGBoost Classifier trên NVIDIA GPU (CUDA)...", flush=True)
+            return model, "XGBClassifier (CUDA GPU)"
+        except Exception as err:
+            raise RuntimeError(
+                f"[FAIL-CLOSE TRIGGERED] ML Training bắt buộc phải sử dụng NVIDIA GPU (CUDA acceleration). Không chấp nhận CPU Fallback: {err}"
+            ) from err
 
     def _train_supervised(self, df: pd.DataFrame) -> Tuple[Any, Dict[str, Any]]:
         print("[TRAINER PROGRESS 25%] Phát hiện Ground Truth (is_suspicious) -> Khởi tạo Supervised Classifier...", flush=True)
@@ -128,15 +134,13 @@ class ModelTrainer:
         print("[TRAINER PROGRESS 90%] Tính toán điểm bất thường (Anomaly Decision Scores)...", flush=True)
         scores = model.decision_function(clean_df)
 
-        # Export contract yêu cầu probability [0,1]. IsolationForest xuất raw
-        # decision score, nên dùng nó tạo pseudo-label rồi fit classifier GPU/CPU;
-        # Rust chỉ phải hiểu một output semantics duy nhất.
+        # Tạo pseudo-labels từ IsolationForest scores để huấn luyện surrogate classifier
         anomaly_count = max(1, int(round(len(clean_df) * 0.05)))
         anomaly_indices = np.argsort(scores)[:anomaly_count]
         pseudo_labels = np.zeros(len(clean_df), dtype=np.int64)
         pseudo_labels[anomaly_indices] = 1
 
-        # Chuẩn hóa tên cột DataFrame sang dạng f0, f1, f2... theo yêu cầu chuẩn của onnxmltools convert_xgboost
+        # Chuẩn hóa tên cột DataFrame sang dạng f0, f1, f2... theo yêu cầu của onnxmltools convert_xgboost
         clean_df_f = clean_df.copy()
         clean_df_f.columns = [f"f{i}" for i in range(len(features))]
 
@@ -156,8 +160,5 @@ class ModelTrainer:
             "mean_anomaly_score": float(np.mean(scores)),
         }
 
-        # In log tiến độ hoàn tất huấn luyện Unsupervised IsolationForest + XGBoost Model
         print(f"[TRAINER PROGRESS 100%] Unsupervised Training OK. Total Samples={metrics['total_samples']:,}, Mean Anomaly Score={metrics['mean_anomaly_score']:.4f}", flush=True)
-
-        # Trả về mô hình xác suất đã huấn luyện cùng chỉ số metrics tương ứng
         return probability_model, metrics
