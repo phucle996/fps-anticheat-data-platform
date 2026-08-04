@@ -2,41 +2,30 @@ package service
 
 import (
 	"context"
-	"encoding/json"
-	"encoding/xml"
-	"io"
-	"net/http"
-	"strings"
 
-	"go-api/internal/client"
 	"go-api/internal/config"
-	"go-api/internal/domain"
+	"go-api/internal/infra"
+	"go-api/internal/model"
 )
 
-// ManifestContent đại diện cho cấu trúc JSON của BatchManifest lưu trên S3
-type ManifestContent struct {
-	TotalRecordsRead      int `json:"total_records_read"`
-	ValidRecordsCount     int `json:"valid_records_count"`
-	InvalidRecordsCount   int `json:"invalid_records_count"`
-	DuplicateRecordsCount int `json:"duplicate_records_count"`
-}
-
-// SummaryService quản lý nghiệp vụ tổng hợp dữ liệu KPI từ MinIO S3 Data Lake
+// SummaryService quản lý nghiệp vụ tổng hợp chỉ số dữ liệu KPI từ MinIO S3 Data Lake
 type SummaryService struct {
-	cfg       *config.Config
-	ipcClient *client.IPCClient
+	cfg         *config.Config
+	minioClient *infra.MinIOClient
+	ipcClient   *infra.IPCClient
 }
 
 // NewSummaryService khởi tạo SummaryService
-func NewSummaryService(cfg *config.Config, ipcClient *client.IPCClient) *SummaryService {
+func NewSummaryService(cfg *config.Config, minioClient *infra.MinIOClient, ipcClient *infra.IPCClient) *SummaryService {
 	return &SummaryService{
-		cfg:       cfg,
-		ipcClient: ipcClient,
+		cfg:         cfg,
+		minioClient: minioClient,
+		ipcClient:   ipcClient,
 	}
 }
 
 // GetDatasetSummary tổng hợp chỉ số dữ liệu thực tế 100% từ MinIO S3 (Zero Fake Data, Zero Fallback)
-func (s *SummaryService) GetDatasetSummary(ctx context.Context) *domain.SummaryResponse {
+func (s *SummaryService) GetDatasetSummary(ctx context.Context) *model.SummaryResponse {
 	totalRaw := 0
 	totalMatches := 0
 	totalPlayers := 0
@@ -44,57 +33,20 @@ func (s *SummaryService) GetDatasetSummary(ctx context.Context) *domain.SummaryR
 	cleanSilver := 0
 	invalidRecords := 0
 
-	// 1. Lấy danh sách S3 Objects thuộc prefix manifests/
-	s3Endpoint := s.cfg.MinIOEndpoint + "/" + s.cfg.MinIOBucketData + "?list-type=2&prefix=manifests/"
-	req, reqErr := http.NewRequestWithContext(ctx, http.MethodGet, s3Endpoint, nil)
-	if reqErr == nil {
-		if s.cfg.MinIOAccessKey != "" && s.cfg.MinIOSecretKey != "" {
-			req.SetBasicAuth(s.cfg.MinIOAccessKey, s.cfg.MinIOSecretKey)
-		}
-		resp, err := http.DefaultClient.Do(req)
-		if err == nil && resp.StatusCode == http.StatusOK {
-			defer resp.Body.Close()
-
-			bodyBytes, readErr := io.ReadAll(resp.Body)
-			if readErr == nil {
-				var s3Result domain.ListBucketResult
-				if xmlErr := xml.Unmarshal(bodyBytes, &s3Result); xmlErr == nil {
-					for _, obj := range s3Result.Contents {
-						// Đọc nội dung chi tiết từng manifest JSON (trừ ml-training-checkpoint.json)
-						if strings.HasSuffix(obj.Key, ".json") && !strings.Contains(obj.Key, "checkpoint") {
-							totalBatches++
-
-							manifestURL := s.cfg.MinIOEndpoint + "/" + s.cfg.MinIOBucketData + "/" + obj.Key
-							mReq, mReqErr := http.NewRequestWithContext(ctx, http.MethodGet, manifestURL, nil)
-							if mReqErr == nil {
-								if s.cfg.MinIOAccessKey != "" && s.cfg.MinIOSecretKey != "" {
-									mReq.SetBasicAuth(s.cfg.MinIOAccessKey, s.cfg.MinIOSecretKey)
-								}
-								mResp, mErr := http.DefaultClient.Do(mReq)
-								if mErr == nil && mResp.StatusCode == http.StatusOK {
-									mBytes, _ := io.ReadAll(mResp.Body)
-									mResp.Body.Close()
-
-									var mContent ManifestContent
-									if jsonErr := json.Unmarshal(mBytes, &mContent); jsonErr == nil {
-										totalRaw += mContent.TotalRecordsRead
-										cleanSilver += mContent.ValidRecordsCount
-										invalidRecords += (mContent.InvalidRecordsCount + mContent.DuplicateRecordsCount)
-									}
-								}
-							}
-						}
-					}
-				}
-			}
-		}
+	// 1. Tải và tổng hợp dữ liệu từ MinIO S3 Data Lake qua infra.MinIOClient (Parallel Fetching Active)
+	if data, err := s.minioClient.FetchSummaryData(ctx); err == nil && data != nil {
+		totalRaw = data.TotalRaw
+		cleanSilver = data.CleanSilver
+		invalidRecords = data.InvalidRecords
+		totalBatches = data.TotalBatches
 	}
 
 	if totalBatches > 0 {
-		totalMatches = max(totalBatches, cleanSilver/70)
+		totalMatches = maxInt(totalBatches, cleanSilver/70)
 		totalPlayers = cleanSilver
 	}
 
+	// 2. Lấy thông tin phiên bản model đang active qua infra.IPCClient
 	modelVersion := "UNAVAILABLE"
 	if s.ipcClient != nil {
 		if activeVer := s.ipcClient.GetActiveModelVersion(); activeVer != "" {
@@ -102,7 +54,7 @@ func (s *SummaryService) GetDatasetSummary(ctx context.Context) *domain.SummaryR
 		}
 	}
 
-	return &domain.SummaryResponse{
+	return &model.SummaryResponse{
 		Status:             "ok",
 		TotalRawRecords:    totalRaw,
 		TotalMatches:       totalMatches,
@@ -117,7 +69,7 @@ func (s *SummaryService) GetDatasetSummary(ctx context.Context) *domain.SummaryR
 	}
 }
 
-func max(a, b int) int {
+func maxInt(a, b int) int {
 	if a > b {
 		return a
 	}

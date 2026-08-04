@@ -1,4 +1,4 @@
-package domain
+package model
 
 // PredictRequest định nghĩa cấu trúc Yêu cầu dự báo truyền qua Unix Domain Socket IPC
 type PredictRequest struct {

@@ -5,10 +5,23 @@ import (
 	"os"
 
 	"github.com/gin-gonic/gin"
+	"go-api/internal/config"
 )
 
-// Health kiểm tra sức khỏe Go API Gateway và kết nối file socket UDS IPC với Rust Engine
-func (h *Handler) Health(c *gin.Context) {
+// HealthHandler quản lý HTTP Handler kiểm tra sức khỏe hệ thống
+type HealthHandler struct {
+	cfg *config.Config
+}
+
+// NewHealthHandler khởi tạo HealthHandler với Config dependency
+func NewHealthHandler(cfg *config.Config) *HealthHandler {
+	return &HealthHandler{
+		cfg: cfg,
+	}
+}
+
+// Health kiểm tra trạng thái hoạt động của Go API Gateway và kiểm tra sự tồn tại của UDS IPC Socket
+func (h *HealthHandler) Health(c *gin.Context) {
 	ipcStatus := "HEALTHY"
 	if _, err := os.Stat(h.cfg.IPCSocketPath); os.IsNotExist(err) {
 		ipcStatus = "UDS_SOCKET_NOT_FOUND"

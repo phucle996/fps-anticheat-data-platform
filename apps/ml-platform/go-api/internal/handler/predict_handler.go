@@ -4,12 +4,25 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	"go-api/internal/domain"
+	"go-api/internal/model"
+	"go-api/internal/service"
 )
 
+// PredictHandler quản lý HTTP Handler dự báo gian lận
+type PredictHandler struct {
+	predictService *service.PredictService
+}
+
+// NewPredictHandler khởi tạo PredictHandler với PredictService dependency
+func NewPredictHandler(predictService *service.PredictService) *PredictHandler {
+	return &PredictHandler{
+		predictService: predictService,
+	}
+}
+
 // Predict tiếp nhận HTTP REST request và ủy quyền xử lý cho PredictService
-func (h *Handler) Predict(c *gin.Context) {
-	var req domain.PredictRequest
+func (h *PredictHandler) Predict(c *gin.Context) {
+	var req model.PredictRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"status": "error",
@@ -18,7 +31,7 @@ func (h *Handler) Predict(c *gin.Context) {
 		return
 	}
 
-	resp, err := h.services.PredictPredictService.ExecutePredict(&req)
+	resp, err := h.predictService.ExecutePredict(&req)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"status": "error",

@@ -1,4 +1,4 @@
-package client
+package infra
 
 import (
 	"encoding/json"
@@ -6,26 +6,27 @@ import (
 	"net"
 	"time"
 
-	"go-api/internal/domain"
+	"go-api/internal/config"
+	"go-api/internal/model"
 )
 
-// IPCClient quản lý kết nối IPC Client Unix Domain Socket tới Rust Inference Engine
+// IPCClient quản lý kết nối IPC Client qua Unix Domain Socket tới Dedicated Rust Inference Engine
 type IPCClient struct {
-	socketPath string // Đường dẫn file socket (vd: "/tmp/rust_inference.sock")
+	cfg *config.Config
 }
 
-// NewIPCClient khởi tạo IPC Client
-func NewIPCClient(socketPath string) *IPCClient {
+// NewIPCClient khởi tạo IPCClient từ Config
+func NewIPCClient(cfg *config.Config) *IPCClient {
 	return &IPCClient{
-		socketPath: socketPath,
+		cfg: cfg,
 	}
 }
 
-// Predict thực thi gửi request JSON qua Unix Domain Socket IPC và nhận kết quả siêu tốc
-func (c *IPCClient) Predict(req *domain.PredictRequest) (*domain.PredictResponse, error) {
-	conn, err := net.DialTimeout("unix", c.socketPath, 2*time.Second)
+// Predict thực thi gửi request JSON qua Unix Domain Socket IPC và nhận kết quả từ Rust Engine
+func (c *IPCClient) Predict(req *model.PredictRequest) (*model.PredictResponse, error) {
+	conn, err := net.DialTimeout("unix", c.cfg.IPCSocketPath, 2*time.Second)
 	if err != nil {
-		return nil, fmt.Errorf("không thể kết nối Unix Domain Socket tại '%s': %w", c.socketPath, err)
+		return nil, fmt.Errorf("không thể kết nối Unix Domain Socket tại '%s': %w", c.cfg.IPCSocketPath, err)
 	}
 	defer conn.Close()
 
@@ -34,7 +35,7 @@ func (c *IPCClient) Predict(req *domain.PredictRequest) (*domain.PredictResponse
 		return nil, fmt.Errorf("lỗi mã hóa JSON IPC request: %w", err)
 	}
 
-	var resp domain.PredictResponse
+	var resp model.PredictResponse
 	decoder := json.NewDecoder(conn)
 	if err := decoder.Decode(&resp); err != nil {
 		return nil, fmt.Errorf("lỗi giải mã JSON IPC response từ Rust Engine: %w", err)
@@ -45,7 +46,7 @@ func (c *IPCClient) Predict(req *domain.PredictRequest) (*domain.PredictResponse
 
 // GetActiveModelVersion thực hiện truy vấn phiên bản mô hình ML đang kích hoạt từ Rust Engine qua IPC
 func (c *IPCClient) GetActiveModelVersion() string {
-	resp, err := c.Predict(&domain.PredictRequest{
+	resp, err := c.Predict(&model.PredictRequest{
 		Op:       "predict",
 		MatchID:  "health_check",
 		PlayerID: "health_check",

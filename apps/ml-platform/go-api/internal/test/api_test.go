@@ -11,9 +11,12 @@ import (
 	"testing"
 	"time"
 
+	"go-api/internal/app"
 	"go-api/internal/config"
 	"go-api/internal/handler"
-	"go-api/internal/ipc"
+	"go-api/internal/infra"
+	"go-api/internal/model"
+	"go-api/internal/service"
 )
 
 // TestConfigFailClose kiểm tra cơ chế Fail-Close 100% khi thiếu biến môi trường
@@ -31,16 +34,28 @@ func TestHealthEndpoint(t *testing.T) {
 		HTTPPort:      "8081",
 		IPCSocketPath: "/tmp/non_existent.sock",
 	}
-	ipcClient := ipc.NewClient(cfg.IPCSocketPath)
-	server := handler.NewServer(cfg, ipcClient)
+	minioClient := infra.NewMinIOClient(cfg)
+	ipcClient := infra.NewIPCClient(cfg)
+	predictService := service.NewPredictService(ipcClient)
+	summaryService := service.NewSummaryService(cfg, minioClient, ipcClient)
 
-	mux := http.NewServeMux()
-	server.RegisterRoutes(mux)
+	mod := &app.Module{
+		Cfg:            cfg,
+		MinIOClient:    minioClient,
+		IPCClient:      ipcClient,
+		PredictService: predictService,
+		SummaryService: summaryService,
+		HealthHandler:  handler.NewHealthHandler(cfg),
+		PredictHandler: handler.NewPredictHandler(predictService),
+		SummaryHandler: handler.NewSummaryHandler(summaryService),
+	}
+
+	r := app.SetupRouter(mod)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/health", nil)
 	rec := httptest.NewRecorder()
 
-	mux.ServeHTTP(rec, req)
+	r.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("Kỳ vọng Status Code 200, nhưng nhận được %d", rec.Code)
@@ -76,10 +91,10 @@ func TestPredictIPCFlow(t *testing.T) {
 		}
 		defer conn.Close()
 
-		var req ipc.PredictRequest
+		var req model.PredictRequest
 		_ = json.NewDecoder(conn).Decode(&req)
 
-		resp := ipc.PredictResponse{
+		resp := model.PredictResponse{
 			Status:       "ok",
 			MatchID:      req.MatchID,
 			PlayerID:     req.PlayerID,
@@ -96,13 +111,25 @@ func TestPredictIPCFlow(t *testing.T) {
 		HTTPPort:      "8081",
 		IPCSocketPath: socketPath,
 	}
-	ipcClient := ipc.NewClient(socketPath)
-	server := handler.NewServer(cfg, ipcClient)
+	minioClient := infra.NewMinIOClient(cfg)
+	ipcClient := infra.NewIPCClient(cfg)
+	predictService := service.NewPredictService(ipcClient)
+	summaryService := service.NewSummaryService(cfg, minioClient, ipcClient)
 
-	mux := http.NewServeMux()
-	server.RegisterRoutes(mux)
+	mod := &app.Module{
+		Cfg:            cfg,
+		MinIOClient:    minioClient,
+		IPCClient:      ipcClient,
+		PredictService: predictService,
+		SummaryService: summaryService,
+		HealthHandler:  handler.NewHealthHandler(cfg),
+		PredictHandler: handler.NewPredictHandler(predictService),
+		SummaryHandler: handler.NewSummaryHandler(summaryService),
+	}
 
-	bodyReq := ipc.PredictRequest{
+	r := app.SetupRouter(mod)
+
+	bodyReq := model.PredictRequest{
 		Op:       "predict",
 		MatchID:  "match_200",
 		PlayerID: "player_B",
@@ -113,13 +140,13 @@ func TestPredictIPCFlow(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/predict", bytes.NewReader(jsonBytes))
 	rec := httptest.NewRecorder()
 
-	mux.ServeHTTP(rec, req)
+	r.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("Kỳ vọng Status Code 200, nhưng nhận được %d: %s", rec.Code, rec.Body.String())
 	}
 
-	var resp ipc.PredictResponse
+	var resp model.PredictResponse
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("Lỗi giải mã JSON response: %v", err)
 	}
