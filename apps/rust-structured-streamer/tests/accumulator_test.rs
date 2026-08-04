@@ -1,5 +1,5 @@
-use rust_processor::domain::{AnyEnvelope, EventEnvelope, PlayerStatPayload, SourceMetadata};
-use rust_processor::ingest::{
+use rust_structured_streamer::domain::{AnyEnvelope, EventEnvelope, PlayerStatPayload, SourceMetadata};
+use rust_structured_streamer::ingest::{
     BatchAccumulator, BatchAccumulatorConfig, ConsumedMessage, InvalidKafkaMessage,
 };
 use std::time::Duration;

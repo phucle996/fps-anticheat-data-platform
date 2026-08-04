@@ -1,4 +1,5 @@
-use rust_processor::storage::{BatchManifest, MinioWriter, PartitionOffsetMetadata};
+// Import storage models từ crate rust_structured_streamer
+use rust_structured_streamer::storage::{BatchManifest, MinioWriter, PartitionOffsetMetadata};
 use std::collections::HashMap;
 
 // Test_batch_manifest_serialization kiểm tra mã hóa và giải mã JSON cho BatchManifest audit log

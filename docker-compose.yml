@@ -145,19 +145,19 @@ services:
       - pubg-platform-net
 
   # ------------------------------------------
-  # 5. Rust Stream Processor Application
+  # 5. Rust Structured Streamer Application
   # ------------------------------------------
   # Stream Processing Engine viết bằng Rust: tiêu thụ telemetry event từ Kafka,
-  # kiểm soát memory footprint và flush dữ liệu dạng Parquet nén Snappy lên MinIO S3 Lake house.
-  # Nạp biến môi trường từ file .env độc lập của sub-project apps/rust-processor
-  rust-processor:
+  # kiểm soát memory footprint và flush dữ liệu dạng Parquet nén Zstandard lên MinIO S3 Lake house.
+  # Nạp biến môi trường từ file .env độc lập của sub-project apps/rust-structured-streamer
+  rust-structured-streamer:
     build:
-      context: ./apps/rust-processor
+      context: ./apps/rust-structured-streamer
       dockerfile: Dockerfile
-    container_name: pubg-rust-processor
+    container_name: pubg-rust-structured-streamer
     restart: unless-stopped
     env_file:
-      - ./apps/rust-processor/.env
+      - ./apps/rust-structured-streamer/.env
     deploy:
       resources:
         limits:

@@ -8,7 +8,7 @@ pub struct Config {
     pub kafka_brokers: String, // Danh sách Kafka brokers (vd: "localhost:9092")
     pub kafka_raw_topic: String, // Raw Kafka topic (vd: "pubg.v1.player-stat.raw")
     pub kafka_gold_ready_topic: String, // Durable signal sau khi Gold output đã ghi thành công
-    pub kafka_group_id: String, // Consumer group ID (vd: "rust-processor-group")
+    pub kafka_group_id: String, // Consumer group ID (vd: "rust-structured-streamer-group")
     pub minio_endpoint: String, // Endpoint MinIO S3 (vd: "http://localhost:9000")
     pub minio_bucket: String,  // Bucket Data Lake MinIO (vd: "fps-anticheat-datalake")
     pub minio_access_key: String, // Access Key của MinIO S3

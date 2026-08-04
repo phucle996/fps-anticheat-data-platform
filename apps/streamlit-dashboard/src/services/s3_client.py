@@ -167,7 +167,7 @@ class S3DataClient:
         checkpoint = self.get_ml_checkpoint_data()
 
         total_batches = len(manifests)
-        # Đọc chính xác các trường key từ BatchManifest JSON do rust-processor phát hành
+        # Đọc chính xác các trường key từ BatchManifest JSON do rust-structured-streamer phát hành
         total_raw = sum(m.get("total_records_read", 0) for m in manifests)
         clean_silver = sum(m.get("valid_records_count", m.get("valid_records", 0)) for m in manifests)
         invalid_records = sum(m.get("invalid_records_count", 0) + m.get("duplicate_records_count", 0) for m in manifests)

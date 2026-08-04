@@ -1,5 +1,6 @@
-use rust_processor::domain::{AnyEnvelope, EventEnvelope, PlayerStatPayload, SourceMetadata};
-use rust_processor::transform::{ArrowConverter, ParquetSerializer};
+// Import ArrowConverter và ParquetSerializer từ crate rust_structured_streamer
+use rust_structured_streamer::domain::{AnyEnvelope, EventEnvelope, PlayerStatPayload, SourceMetadata};
+use rust_structured_streamer::transform::{ArrowConverter, ParquetSerializer};
 use std::fs;
 
 fn create_sample_events() -> Vec<AnyEnvelope> {

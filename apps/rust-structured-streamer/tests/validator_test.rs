@@ -1,5 +1,6 @@
-use rust_processor::domain::{AnyEnvelope, EventEnvelope, PlayerStatPayload, SourceMetadata};
-use rust_processor::transform::EventValidator;
+// Import domain models và validator từ crate rust_structured_streamer
+use rust_structured_streamer::domain::{AnyEnvelope, EventEnvelope, PlayerStatPayload, SourceMetadata};
+use rust_structured_streamer::transform::EventValidator;
 
 fn create_valid_event() -> EventEnvelope {
     EventEnvelope {

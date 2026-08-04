@@ -1,9 +1,10 @@
 [package]
-name = "rust-processor"
+# Cập nhật tên package sang rust-structured-streamer để phản ánh đúng bản chất Stream Engine
+name = "rust-structured-streamer"
 version = "0.1.0"
 edition = "2024"
 authors = ["DeepMind Agentic Anticheat Team"]
-description = "PUBG Anti-Cheat High-Throughput Rust Stream Processor Engine"
+description = "PUBG Anti-Cheat High-Throughput Rust Structured Streamer Engine"
 
 [dependencies]
 # Tokio Multi-threaded Async Runtime cho xử lý song song throughput cao

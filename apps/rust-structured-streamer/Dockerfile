@@ -36,14 +36,14 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
     --mount=type=cache,target=/app/target \
     touch src/main.rs \
     && cargo build --release \
-    && cp /app/target/release/rust-processor /app/rust-processor-bin
+    && cp /app/target/release/rust-structured-streamer /app/rust-structured-streamer-bin
 
 # ------------------------------------------
 # Stage 2: Minimal Runtime Stage (Debian Bookworm với OpenSSL + libzstd1 - 100% Native Rust)
 # ------------------------------------------
 FROM debian:bookworm-slim AS runner
 
-# Cài đặt ca-certificates, libssl3, libzstd1 cho Native Rust Runtime (Đã loại bỏ hoàn toàn 100% R-runtime và dependencies)
+# Cài đặt ca-certificates, libssl3, libzstd1 cho Native Rust Runtime
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
     apt-get update && apt-get install -y --no-install-recommends \
@@ -59,8 +59,8 @@ RUN useradd -m -u 10001 appuser \
 USER appuser
 
 # Copy binary đã biên dịch từ Stage 1
-COPY --from=builder /app/rust-processor-bin /app/rust-processor
+COPY --from=builder /app/rust-structured-streamer-bin /app/rust-structured-streamer
 
-# Cấu hình log level mặc định và entrypoint
+# Cấu hình log level mặc định và entrypoint cho rust-structured-streamer
 ENV RUST_LOG=info
-ENTRYPOINT ["/app/rust-processor"]
+ENTRYPOINT ["/app/rust-structured-streamer"]

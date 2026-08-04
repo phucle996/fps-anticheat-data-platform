@@ -30,9 +30,9 @@ check-deps:
 
 ## init: Khởi tạo file .env, bật toàn bộ stack Docker Containers và khởi tạo S3 Buckets / Kafka Topics / Medallion Data Lake
 init:
-	# Dọn dẹp các container mồ côi cũ (name=pubg-* hoặc command=/app/rust-processor) trước khi tạo mới để tránh lỗi conflict container name
+	# Dọn dẹp các container mồ côi cũ (name=pubg-* hoặc command=/app/rust-structured-streamer) trước khi tạo mới để tránh lỗi conflict container name
 	@echo "[+] 0. Dọn dẹp các container mồ côi cũ trước khi khởi tạo..."
-	@docker ps -a --format '{{.ID}} {{.Command}} {{.Names}}' | grep -E '/app/rust-processor|pubg-' | awk '{print $$1}' | xargs -r docker rm -f > /dev/null 2>&1 || true
+	@docker ps -a --format '{{.ID}} {{.Command}} {{.Names}}' | grep -E '/app/rust-structured-streamer|pubg-' | awk '{print $$1}' | xargs -r docker rm -f > /dev/null 2>&1 || true
 	@echo "[+] 1. Khởi tạo file môi trường .env từ .env.example..."
 	@if [ ! -f .env ]; then cp .env.example .env; fi
 	@echo "[+] 2. Khởi chạy toàn bộ stack Docker Containers (Kafka, MinIO, Kafka UI, Rust Processor, ML Platform, Streamlit)..."
@@ -203,10 +203,10 @@ purge:
 	@echo "[+] Dừng và dọn dẹp triệt để Docker Containers & Data Volumes..."
 	docker compose down -v --remove-orphans
 	# Xóa sạch tất cả các container mồ côi (standalone containers) khởi tạo trực tiếp qua `docker run` hoặc test suite
-	@docker ps -a --format '{{.ID}} {{.Command}} {{.Names}}' | grep -E '/app/rust-processor|pubg-' | awk '{print $$1}' | xargs -r docker rm -f > /dev/null 2>&1 || true
+	@docker ps -a --format '{{.ID}} {{.Command}} {{.Names}}' | grep -E '/app/rust-structured-streamer|pubg-' | awk '{print $$1}' | xargs -r docker rm -f > /dev/null 2>&1 || true
 	@docker network rm pubg-platform-net > /dev/null 2>&1 || true
 	@echo "[+] Xóa sạch cache, log và file tạm local..."
-	@rm -rf bin/ target/ tmp/ *.log apps/rust-processor/target apps/ml-platform/rust-inference/target
+	@rm -rf bin/ target/ tmp/ *.log apps/rust-structured-streamer/target apps/ml-platform/rust-inference/target
 	@find . -name "*.tmp" -type f -delete
 	@echo "  ✓ Đã xóa sạch 100% dữ liệu, hệ thống đưa về trạng thái sạch sẽ ban đầu!"
 
@@ -216,7 +216,7 @@ fmt:
 	@if [ -d apps/go-ingestor ] && [ -f apps/go-ingestor/go.mod ]; then cd apps/go-ingestor && go fmt ./...; fi
 	@if [ -d apps/ml-platform/go-api ] && [ -f apps/ml-platform/go-api/go.mod ]; then cd apps/ml-platform/go-api && go fmt ./...; fi
 	@echo "[+] Đang định dạng mã nguồn Rust..."
-	@if [ -d apps/rust-processor ] && [ -f apps/rust-processor/Cargo.toml ]; then cd apps/rust-processor && cargo fmt; fi
+	@if [ -d apps/rust-structured-streamer ] && [ -f apps/rust-structured-streamer/Cargo.toml ]; then cd apps/rust-structured-streamer && cargo fmt; fi
 	@if [ -d apps/ml-platform/rust-inference ] && [ -f apps/ml-platform/rust-inference/Cargo.toml ]; then cd apps/ml-platform/rust-inference && cargo fmt; fi
 
 ## test: Chạy unit test toàn bộ các service trong Monorepo
@@ -225,8 +225,8 @@ test:
 	@cd apps/go-ingestor && go test ./...
 	@echo "[+] Unit test Go API Gateway..."
 	@cd apps/ml-platform/go-api && go test ./...
-	@echo "[+] Unit test Rust Processor..."
-	@cd apps/rust-processor && cargo test
+	@echo "[+] Unit test Rust Structured Streamer..."
+	@cd apps/rust-structured-streamer && cargo test
 	@echo "[+] Unit test Rust Inference Engine..."
 	@cd apps/ml-platform/rust-inference && cargo test
 	@echo "[+] Unit test Python ML Worker..."

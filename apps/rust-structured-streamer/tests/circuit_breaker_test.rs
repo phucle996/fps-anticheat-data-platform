@@ -1,4 +1,5 @@
-use rust_processor::worker::{CircuitBreakerState, ResourceCircuitBreaker};
+// Import ResourceCircuitBreaker từ crate rust_structured_streamer
+use rust_structured_streamer::worker::{CircuitBreakerState, ResourceCircuitBreaker};
 
 // Test_circuit_breaker_state_transitions kiểm tra chuyển đổi trạng thái Hysteresis 80%/75%
 #[test]

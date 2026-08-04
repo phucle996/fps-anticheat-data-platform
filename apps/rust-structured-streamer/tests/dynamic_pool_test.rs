@@ -1,4 +1,5 @@
-use rust_processor::worker::{CircuitBreakerState, ResourceCircuitBreaker};
+// Import CircuitBreaker từ crate rust_structured_streamer
+use rust_structured_streamer::worker::{CircuitBreakerState, ResourceCircuitBreaker};
 
 #[test]
 fn test_resource_circuit_breaker_starts_closed() {

@@ -1,6 +1,7 @@
-use rust_processor::config::Config;
-use rust_processor::storage::MinioWriter;
-use rust_processor::worker::NativeWorkerSpawner;
+// Import modules từ crate rust_structured_streamer
+use rust_structured_streamer::config::Config;
+use rust_structured_streamer::storage::MinioWriter;
+use rust_structured_streamer::worker::NativeWorkerSpawner;
 use std::sync::Arc;
 use std::time::Duration;
 

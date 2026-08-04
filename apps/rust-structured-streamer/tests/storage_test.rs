@@ -1,4 +1,5 @@
-use rust_processor::storage::MinioWriter;
+// Import MinioWriter từ crate rust_structured_streamer
+use rust_structured_streamer::storage::MinioWriter;
 
 // Test_generate_bronze_path_hive_format kiểm tra sinh đúng cấu trúc đường dẫn Hive Partitioning
 #[test]

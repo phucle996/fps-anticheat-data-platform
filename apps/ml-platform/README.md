@@ -1,10 +1,10 @@
 # Unified Machine Learning Platform (`apps/ml-platform`)
 
-Thư mục **`apps/ml-platform/`** chứa hệ sinh thái 3 dịch vụ vi mô (3-in-1 Microservices Architecture) chịu trách nhiệm huấn luyện mô hình Machine Learning, thực thi suy luận AI siêu tốc và cung cấp cổng REST API phục vụ phát hiện gian lận real-time cho nền tảng **PUBG PC Anti-Cheat Data Platform**.
+The **`apps/ml-platform/`** directory contains a 3-in-1 microservices ecosystem responsible for training Machine Learning models, executing high-speed AI inference, and providing a REST API Gateway serving real-time fraud detection for the **PUBG PC Anti-Cheat Data Platform**.
 
 ---
 
-## 🏛️ Kiến Trúc 3-trong-1 (3-in-1 Unified Architecture)
+## 🏛️ 3-in-1 Unified Architecture
 
 ```text
 +-----------------------------------------------------------------------------------------+
@@ -41,45 +41,45 @@ Thư mục **`apps/ml-platform/`** chứa hệ sinh thái 3 dịch vụ vi mô (
 
 ---
 
-## 🚀 Danh Sách Dịch Vụ Con (Core Sub-Services)
+## 🚀 Core Sub-Services
 
 ### 1. `apps/ml-platform/python-ml-worker`
-- **Chức năng**: Huấn luyện các mô hình Machine Learning (Random Forest, HistGradientBoosting, Isolation Forest) trên tập đặc trưng Gold Features.
-- **ONNX Model Exporter**: Xuất mô hình sang định dạng chuẩn ONNX 6-inputs (`kills_pm`, `damage_pm`, `headshot_ratio`, `damage_per_kill`, `movement_pm`, `perf_vs_lobby`).
-- **Signal**: Gửi tín hiệu thông báo cho Rust Inference Engine qua IPC khi xuất xong mô hình mới.
+- **Functionality**: Trains Machine Learning models (Random Forest, HistGradientBoosting, Isolation Forest) on Gold Features.
+- **ONNX Model Exporter**: Exports models to standard ONNX 6-input format (`kills_pm`, `damage_pm`, `headshot_ratio`, `damage_per_kill`, `movement_pm`, `perf_vs_lobby`).
+- **Signal**: Sends an IPC notification signal to the Rust Inference Engine after publishing a new model version.
 
 ### 2. `apps/ml-platform/rust-inference`
-- **Chức năng**: Engine suy luận ONNX bằng Rust thuần sử dụng `ort` crate kết hợp Atomic Hot-Swap RAM (`Arc<RwLock<LoadedModel>>`) đảm bảo Zero Downtime.
-- **UDS IPC Server**: Lắng nghe tại Unix Domain Socket `/tmp/rust_inference.sock` nhận request JSON và trả về Anomaly Risk Score (0.0 - 1.0) & Risk Level (`LOW`, `MEDIUM`, `HIGH`, `CRITICAL`).
-- **Evidence Matrix Generator**: Tính toán chỉ số Robust Z-Score ($Z_{robust} = \frac{X_i - \text{Median}}{\text{MAD} \times 1.4826}$) và trích xuất bằng chứng gian lận nổi bật nhất.
-- **Parquet Storage Writer**: Đóng gói toàn bộ kết quả suy luận ghi thành file Parquet lưu trữ lên MinIO Data Lake (`s3://pubg-predictions/`).
+- **Functionality**: Pure Rust ONNX inference engine using the `ort` crate combined with Atomic Hot-Swap RAM (`Arc<RwLock<LoadedModel>>`) ensuring zero downtime.
+- **UDS IPC Server**: Listens on Unix Domain Socket `/tmp/rust_inference.sock`, receives JSON requests, and returns Anomaly Risk Score (0.0 - 1.0) & Risk Level (`LOW`, `MEDIUM`, `HIGH`, `CRITICAL`).
+- **Evidence Matrix Generator**: Calculates Robust Z-Score ($Z_{robust} = \frac{X_i - \text{Median}}{\text{MAD} \times 1.4826}$) and extracts top key suspicious cheating indicators.
+- **Parquet Storage Writer**: Bundles full inference results into Parquet format and persists to MinIO Data Lake (`s3://pubg-predictions/`).
 
 ### 3. `apps/ml-platform/go-api`
-- **Chức năng**: Cổng HTTP REST API Gateway bảo mật phục vụ các ứng dụng Frontend và Streamlit Dashboard.
+- **Functionality**: Secure HTTP REST API Gateway serving Frontend applications and the Streamlit Dashboard.
 - **Endpoints**:
-  - `GET /api/v1/health`: Kiểm tra liveness và kết nối file socket UDS IPC.
-  - `POST /api/v1/predict`: Nhận payload dự báo và chuyển tiếp tới Rust Engine qua UDS IPC.
-  - `GET /api/v1/dataset/summary`: Cung cấp 10 chỉ số KPI thống kê dữ liệu cho Streamlit Dashboard.
+  - `GET /api/v1/health`: Checks liveness and UDS IPC socket file connectivity.
+  - `POST /api/v1/predict`: Receives prediction payload and forwards to the Rust Engine via UDS IPC.
+  - `GET /api/v1/dataset/summary`: Provides 10 data KPI summary statistics for the Streamlit Dashboard.
 
 ---
 
-## ⚙️ Tập Cấu Hình Môi Trường Chung (`apps/ml-platform/.env`)
+## ⚙️ Unified Environment Configuration (`apps/ml-platform/.env`)
 
-Tất cả 3 dịch vụ trong ML Platform chia sẻ chung file cấu hình `.env` với nguyên tắc **Fail-Close 100% (Zero Default Fallback)**:
+All 3 services within the ML Platform share a common `.env` configuration file adhering to a **100% Fail-Close (Zero Default Fallback)** policy:
 
 ```ini
-# Cấu hình Go API Gateway
+# Go API Gateway Configuration
 HTTP_PORT=8081
 IPC_SOCKET_PATH=/tmp/rust_inference.sock
 
-# Cấu hình MinIO S3 Object Storage
+# MinIO S3 Object Storage Configuration
 MINIO_ENDPOINT=http://localhost:9000
 MINIO_BUCKET_DATA=fps-anticheat-datalake
 MINIO_BUCKET_MODEL=pubg-models
 MINIO_ACCESS_KEY=minioadmin
 MINIO_SECRET_KEY=minioadmin
 
-# Cấu hình Kafka Message Broker
+# Kafka Message Broker Configuration
 KAFKA_BROKERS=localhost:9092
 KAFKA_TOPIC_GOLD=pubg.v1.dataset.gold.ready
 KAFKA_TOPIC_MODEL=pubg.v1.ml.model.ready
@@ -87,21 +87,21 @@ KAFKA_TOPIC_MODEL=pubg.v1.ml.model.ready
 
 ---
 
-## 🛠️ Hướng Dẫn Kiểm Thử & Chạy Dịch Vụ (Commands)
+## 🛠️ Testing & Execution Commands
 
-### 1. Kiểm thử Rust Inference Engine & UDS IPC & Evidence Matrix
+### 1. Test Rust Inference Engine, UDS IPC & Evidence Matrix
 ```bash
 cd apps/ml-platform/rust-inference
 cargo test -- --nocapture
 ```
 
-### 2. Kiểm thử Go API Gateway Service
+### 2. Test Go API Gateway Service
 ```bash
 cd apps/ml-platform/go-api
 go test -v ./...
 ```
 
-### 3. Kiểm thử Python ML Worker & ONNX Exporter
+### 3. Test Python ML Worker & ONNX Exporter
 ```bash
 cd apps/ml-platform/python-ml-worker
 pytest tests/
@@ -109,7 +109,7 @@ pytest tests/
 
 ---
 
-## 📂 Cấu Trúc Thư Mục (Directory Structure)
+## 📂 Directory Structure
 
 ```text
 apps/ml-platform/
@@ -126,5 +126,5 @@ apps/ml-platform/
 ├── python-ml-worker/          # Python Model Training Engine
 │   ├── src/ (config, dataset_loader, trainer, onnx_exporter)
 │   └── tests/
-└── README.md                  # Hướng dẫn chi tiết hệ thống ML Platform
+└── README.md                  # Detailed ML Platform documentation
 ```

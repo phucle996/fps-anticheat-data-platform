@@ -1,4 +1,5 @@
-use rust_processor::domain::EventEnvelope;
+// Import EventEnvelope từ crate rust_structured_streamer
+use rust_structured_streamer::domain::EventEnvelope;
 
 // Test_deserialize_valid_event_json kiểm tra giải mã đúng JSON Event Envelope từ Go Ingestor
 #[test]

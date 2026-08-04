@@ -1,5 +1,6 @@
-use rust_processor::domain::{AnyEnvelope, EventEnvelope, PlayerStatPayload, SourceMetadata};
-use rust_processor::transform::EventDeduplicator;
+// Import EventDeduplicator từ crate rust_structured_streamer
+use rust_structured_streamer::domain::{AnyEnvelope, EventEnvelope, PlayerStatPayload, SourceMetadata};
+use rust_structured_streamer::transform::EventDeduplicator;
 
 fn create_event_with_id(id: &str) -> AnyEnvelope {
     AnyEnvelope::PlayerStat(EventEnvelope {
